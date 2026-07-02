@@ -53,7 +53,7 @@ export function CustomAreaLineChart({ data, xAxisKey, series }: CustomChartProps
   };
 
   return (
-    <div className="relative w-full h-[240px] select-none">
+    <div className="relative w-full select-none aspect-[500/240]">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
         {/* Gradients definitions */}
         <defs>
@@ -282,7 +282,7 @@ export function CustomBarChart({ data, xAxisKey, series }: CustomChartProps) {
   };
 
   return (
-    <div className="relative w-full h-[240px] select-none">
+    <div className="relative w-full select-none aspect-[500/240]">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
         {/* Horizontal grid lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
@@ -305,7 +305,7 @@ export function CustomBarChart({ data, xAxisKey, series }: CustomChartProps) {
                 className="font-mono text-[9px] fill-slate-400 text-right"
                 textAnchor="end"
               >
-                {val}
+                {val >= 10000000 ? `₹${(val / 10000000).toFixed(1)}Cr` : val >= 100000 ? `₹${(val / 100000).toFixed(1)}L` : val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}
               </text>
             </g>
           );
@@ -334,11 +334,12 @@ export function CustomBarChart({ data, xAxisKey, series }: CustomChartProps) {
                   fill={s.color}
                   opacity={hoveredIndex === null ? 1 : isGroupHovered ? 1 : 0.45}
                   rx="3"
-                  className="transition-all duration-150 cursor-pointer"
+                  className="transition-all duration-150 cursor-pointer origin-bottom"
+                  style={{ originY: 1 }}
                   onMouseEnter={() => setHoveredIndex(idx)}
                   onMouseLeave={() => setHoveredIndex(null)}
-                  initial={{ height: 0, y: paddingTop + chartHeight }}
-                  animate={{ height: barH, y }}
+                  initial={{ scaleY: 0 }}
+                  animate={{ scaleY: 1 }}
                   transition={{ duration: 0.5, delay: idx * 0.03, ease: 'easeOut' }}
                 />
               </g>

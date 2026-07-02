@@ -127,7 +127,7 @@ export default function PaymentsView() {
           <div className="border-b border-slate-50 dark:border-slate-700 pb-2">
             <h3 className="font-bold text-slate-800 dark:text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
               <TrendingUp className="w-4.5 h-4.5 text-blue-500" />
-              <span>SaaS Revenue Distribution</span>
+              <span>Portal Revenue Distribution</span>
             </h3>
             <p className="text-[10px] text-slate-400 mt-1">Monthly collection milestones</p>
           </div>
