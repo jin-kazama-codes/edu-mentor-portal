@@ -1,0 +1,6 @@
+{
+  "name": "EduPortal",
+  "description": "A premium, enterprise-grade admin dashboard for multi-tenant student and mentor management with role-based access control, analytics, session tracking, and audit logging.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

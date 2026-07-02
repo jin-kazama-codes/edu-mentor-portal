@@ -1,0 +1,29 @@
+{
+  "short_name": "EduPortal",
+  "name": "EduPortal - Student & Mentor Management System",
+  "description": "A premium, enterprise-grade admin dashboard for multi-tenant student and mentor management.",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=192&h=192&fit=crop&q=80",
+      "type": "image/jpeg",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=512&h=512&fit=crop&q=80",
+      "type": "image/jpeg",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "categories": ["education", "productivity"]
+}
