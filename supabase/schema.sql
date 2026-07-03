@@ -306,13 +306,13 @@ ALTER TABLE evaluations ENABLE ROW LEVEL SECURITY;
 -- Dynamic RLS Helpers to extract session context
 CREATE OR REPLACE FUNCTION get_current_user_role()
 RETURNS TEXT AS $$
-  SELECT role FROM users WHERE id = auth.uid()::text;
-$$ LANGUAGE sql SECURITY DEFINER;
+  SELECT role FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email');
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 CREATE OR REPLACE FUNCTION get_current_user_org()
 RETURNS TEXT AS $$
-  SELECT organization FROM users WHERE id = auth.uid()::text;
-$$ LANGUAGE sql SECURITY DEFINER;
+  SELECT organization FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email');
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 CREATE OR REPLACE FUNCTION check_permission(module_name TEXT, action_name TEXT)
 RETURNS BOOLEAN AS $$
@@ -322,15 +322,17 @@ DECLARE
   has_perm BOOLEAN;
 BEGIN
   -- 1. Extract context
-  SELECT role, organization INTO u_role, u_org FROM users WHERE id = auth.uid()::text;
+  SELECT role, organization INTO u_role, u_org 
+  FROM users 
+  WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email');
   
   -- If not logged in, deny
   IF u_role IS NULL THEN
     RETURN FALSE;
   END IF;
   
-  -- Super Admin bypasses check for standard permission logic
-  IF u_role = 'Super Admin' THEN
+  -- Super Admin and Organization Admin bypass check for standard permission logic
+  IF u_role IN ('Super Admin', 'Organization Admin') THEN
     RETURN TRUE;
   END IF;
 
@@ -349,7 +351,7 @@ BEGIN
   
   RETURN COALESCE(has_perm, FALSE);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 
 -- ==============================================================
@@ -375,21 +377,24 @@ CREATE POLICY permissions_modify ON permissions FOR ALL USING (
 
 -- 3. Users policies
 CREATE POLICY users_select ON users FOR SELECT USING (
-  id = auth.uid()::text 
+  LOWER(email) = LOWER(auth.jwt() ->> 'email')
   OR (check_permission('User and Role Management', 'read') AND organization = get_current_user_org())
   OR get_current_user_role() = 'Super Admin'
 );
 CREATE POLICY users_insert ON users FOR INSERT WITH CHECK (
   get_current_user_role() = 'Super Admin'
+  OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
   OR (check_permission('User and Role Management', 'create') AND organization = get_current_user_org())
 );
 CREATE POLICY users_update ON users FOR UPDATE USING (
-  id = auth.uid()::text
+  LOWER(email) = LOWER(auth.jwt() ->> 'email')
   OR get_current_user_role() = 'Super Admin'
+  OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
   OR (check_permission('User and Role Management', 'update') AND organization = get_current_user_org())
 );
 CREATE POLICY users_delete ON users FOR DELETE USING (
   get_current_user_role() = 'Super Admin'
+  OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
   OR (check_permission('User and Role Management', 'delete') AND organization = get_current_user_org())
 );
 
@@ -397,11 +402,22 @@ CREATE POLICY users_delete ON users FOR DELETE USING (
 CREATE POLICY mentors_select ON mentors FOR SELECT USING (
   get_current_user_role() = 'Super Admin'
   OR (organization = get_current_user_org() AND check_permission('User and Role Management', 'read'))
-  OR email = (SELECT email FROM users WHERE id = auth.uid()::text)
+  OR LOWER(email) = LOWER(auth.jwt() ->> 'email')
 );
-CREATE POLICY mentors_modify ON mentors FOR ALL USING (
+CREATE POLICY mentors_insert ON mentors FOR INSERT WITH CHECK (
   get_current_user_role() = 'Super Admin'
-  OR (organization = get_current_user_org() AND check_permission('User and Role Management', 'update'))
+  OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
+  OR (check_permission('User and Role Management', 'create') AND organization = get_current_user_org())
+);
+CREATE POLICY mentors_update ON mentors FOR UPDATE USING (
+  get_current_user_role() = 'Super Admin'
+  OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
+  OR (check_permission('User and Role Management', 'update') AND organization = get_current_user_org())
+);
+CREATE POLICY mentors_delete ON mentors FOR DELETE USING (
+  get_current_user_role() = 'Super Admin'
+  OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
+  OR (check_permission('User and Role Management', 'delete') AND organization = get_current_user_org())
 );
 
 -- 5. Students policies
@@ -410,12 +426,13 @@ CREATE POLICY students_select ON students FOR SELECT USING (
   OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
   -- Mentors can see their assigned students
   OR (get_current_user_role() = 'Mentor' AND organization = get_current_user_org() AND name = ANY (
-        SELECT unnest("studentsAssigned") FROM mentors WHERE email = (SELECT email FROM users WHERE id = auth.uid()::text)
+        SELECT unnest("studentsAssigned") FROM mentors 
+        WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')
      ))
   -- Assistants can see all students in their organization
   OR (get_current_user_role() = 'Assistant' AND organization = get_current_user_org())
   -- Students see their own student record
-  OR email = (SELECT email FROM users WHERE id = auth.uid()::text)
+  OR LOWER(email) = LOWER(auth.jwt() ->> 'email')
 );
 CREATE POLICY students_modify ON students FOR ALL USING (
   get_current_user_role() = 'Super Admin'
@@ -426,9 +443,14 @@ CREATE POLICY students_modify ON students FOR ALL USING (
 CREATE POLICY sessions_select ON sessions FOR SELECT USING (
   get_current_user_role() = 'Super Admin'
   OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
-  OR (get_current_user_role() = 'Mentor' AND organization = get_current_user_org() AND mentor = (SELECT name FROM users WHERE id = auth.uid()::text))
-  OR (get_current_user_role() = 'Assistant' AND organization = get_current_user_org() AND mentor = (SELECT name FROM users WHERE id = (SELECT mentor_id FROM users WHERE id = auth.uid()::text)))
-  OR (get_current_user_role() = 'Student' AND organization = get_current_user_org() AND student = (SELECT name FROM users WHERE id = auth.uid()::text))
+  OR (get_current_user_role() = 'Mentor' AND organization = get_current_user_org() 
+      AND mentor = (SELECT name FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')))
+  OR (get_current_user_role() = 'Assistant' AND organization = get_current_user_org() 
+      AND mentor = (SELECT name FROM users WHERE id = (
+        SELECT mentor_id FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')
+      )))
+  OR (get_current_user_role() = 'Student' AND organization = get_current_user_org() 
+      AND student = (SELECT name FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')))
 );
 CREATE POLICY sessions_modify ON sessions FOR ALL USING (
   get_current_user_role() = 'Super Admin'
@@ -454,7 +476,8 @@ CREATE POLICY chat_messages_insert ON chat_messages FOR INSERT WITH CHECK (
 CREATE POLICY payments_select ON payments FOR SELECT USING (
   get_current_user_role() = 'Super Admin'
   OR (get_current_user_role() = 'Organization Admin' AND organization = get_current_user_org())
-  OR (get_current_user_role() = 'Student' AND organization = get_current_user_org() AND student = (SELECT name FROM users WHERE id = auth.uid()::text))
+  OR (get_current_user_role() = 'Student' AND organization = get_current_user_org() 
+      AND student = (SELECT name FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')))
 );
 CREATE POLICY payments_modify ON payments FOR ALL USING (
   get_current_user_role() = 'Super Admin'
@@ -464,9 +487,11 @@ CREATE POLICY payments_modify ON payments FOR ALL USING (
 CREATE POLICY evaluations_select ON evaluations FOR SELECT USING (
   (get_current_user_role() = 'Super Admin' OR (organization = get_current_user_org() AND get_current_user_role() = 'Organization Admin'))
   OR (get_current_user_role() = 'Mentor' AND organization = get_current_user_org() AND "studentName" = ANY (
-        SELECT unnest("studentsAssigned") FROM mentors WHERE email = (SELECT email FROM users WHERE id = auth.uid()::text)
+        SELECT unnest("studentsAssigned") FROM mentors 
+        WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')
      ))
-  OR (get_current_user_role() = 'Student' AND organization = get_current_user_org() AND "studentName" = (SELECT name FROM users WHERE id = auth.uid()::text))
+  OR (get_current_user_role() = 'Student' AND organization = get_current_user_org() 
+      AND "studentName" = (SELECT name FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')))
 );
 CREATE POLICY evaluations_modify ON evaluations FOR ALL USING (
   get_current_user_role() = 'Super Admin'
