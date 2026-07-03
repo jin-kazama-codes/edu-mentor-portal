@@ -21,14 +21,29 @@ import {
   MoreVertical,
   X
 } from 'lucide-react';
-import { organizations } from '../../data/mockData';
+import { organizations as fallbackOrgs } from '../../data/mockData';
 import { Organization } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { useEffect } from 'react';
 
 export default function OrganizationsView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [planFilter, setPlanFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
-  const [data, setData] = useState<Organization[]>(organizations);
+  const [data, setData] = useState<Organization[]>([]);
+
+  useEffect(() => {
+    async function loadData() {
+      const { data: orgs, error } = await supabase
+        .from('organizations')
+        .select('*')
+        .order('name');
+      if (!error && orgs) {
+        setData(orgs);
+      }
+    }
+    loadData();
+  }, []);
 
   // Modals and notifications states
   const [showProvisionModal, setShowProvisionModal] = useState(false);
@@ -59,7 +74,7 @@ export default function OrganizationsView() {
     setEditMentors(org.mentors);
   };
 
-  const handleProvisionSubmit = (e: React.FormEvent) => {
+  const handleProvisionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!provName.trim()) return;
 
@@ -73,6 +88,13 @@ export default function OrganizationsView() {
       renewalDate: '2027-06-01',
       status: 'Active'
     };
+
+    const { error } = await supabase.from('organizations').insert([newOrg]);
+    if (error) {
+      console.error(error);
+      alert('Error provisioning organization: ' + error.message);
+      return;
+    }
 
     setData((prev) => [newOrg, ...prev]);
     setToastMessage(`Successfully provisioned tenant "${provName}"!`);
@@ -89,20 +111,35 @@ export default function OrganizationsView() {
     setTimeout(() => setShowToast(false), 3000);
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrgForEdit) return;
+
+    const updated = {
+      name: editName,
+      plan: editPlan,
+      users: editUsers,
+      students: editStudents,
+      mentors: editMentors
+    };
+
+    const { error } = await supabase
+      .from('organizations')
+      .update(updated)
+      .eq('id', selectedOrgForEdit.id);
+
+    if (error) {
+      console.error(error);
+      alert('Error updating organization: ' + error.message);
+      return;
+    }
 
     setData((prev) =>
       prev.map((org) => {
         if (org.id === selectedOrgForEdit.id) {
           return {
             ...org,
-            name: editName,
-            plan: editPlan,
-            users: editUsers,
-            students: editStudents,
-            mentors: editMentors
+            ...updated
           };
         }
         return org;
@@ -123,11 +160,26 @@ export default function OrganizationsView() {
     return matchesSearch && matchesPlan && matchesStatus;
   });
 
-  const handleToggleStatus = (id: string) => {
+  const handleToggleStatus = async (id: string) => {
+    const org = data.find((o) => o.id === id);
+    if (!org) return;
+
+    const newStatus: Organization['status'] = org.status === 'Active' ? 'Suspended' : 'Active';
+
+    const { error } = await supabase
+      .from('organizations')
+      .update({ status: newStatus })
+      .eq('id', id);
+
+    if (error) {
+      console.error(error);
+      alert('Error updating status: ' + error.message);
+      return;
+    }
+
     setData((prev) =>
       prev.map((org) => {
         if (org.id === id) {
-          const newStatus: Organization['status'] = org.status === 'Active' ? 'Suspended' : 'Active';
           return { ...org, status: newStatus };
         }
         return org;
@@ -153,25 +205,42 @@ export default function OrganizationsView() {
         </button>
       </div>
 
-      {/* Stats Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold">Total Tenants</span>
-          <h4 className="text-lg font-black text-slate-800 dark:text-white mt-1">5 Registered</h4>
-        </div>
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold">Active Enrollment</span>
-          <h4 className="text-lg font-black text-teal-600 mt-1">3,482 Enrolled</h4>
-        </div>
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold">Enterprise Tiers</span>
-          <h4 className="text-lg font-black text-blue-500 mt-1">2 Institutes</h4>
-        </div>
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold">Avg renewal rate</span>
-          <h4 className="text-lg font-black text-indigo-500 mt-1">98.4% Rate</h4>
-        </div>
-      </div>
+      {/* Stats Summary cards — computed from live data */}
+      {(() => {
+        const totalTenants = data.length;
+        const totalEnrolled = data.reduce((sum, o) => sum + o.students, 0);
+        const enterpriseCount = data.filter((o) => o.plan === 'Enterprise').length;
+        const activeCount = data.filter((o) => o.status === 'Active').length;
+        const renewalRate = totalTenants > 0 ? Math.round((activeCount / totalTenants) * 100) : 0;
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Total Tenants</span>
+              <h4 className="text-lg font-black text-slate-800 dark:text-white mt-1">
+                {totalTenants === 0 ? '—' : `${totalTenants} Registered`}
+              </h4>
+            </div>
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Active Enrollment</span>
+              <h4 className="text-lg font-black text-teal-600 mt-1">
+                {totalTenants === 0 ? '—' : `${totalEnrolled.toLocaleString()} Enrolled`}
+              </h4>
+            </div>
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Enterprise Tiers</span>
+              <h4 className="text-lg font-black text-blue-500 mt-1">
+                {totalTenants === 0 ? '—' : `${enterpriseCount} ${enterpriseCount === 1 ? 'Institute' : 'Institutes'}`}
+              </h4>
+            </div>
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Avg Renewal Rate</span>
+              <h4 className="text-lg font-black text-indigo-500 mt-1">
+                {totalTenants === 0 ? '—' : `${renewalRate}% Rate`}
+              </h4>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Filters Bar */}
       <div className="flex flex-col sm:flex-row gap-3 bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">

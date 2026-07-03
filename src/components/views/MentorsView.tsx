@@ -20,20 +20,43 @@ import {
   X,
   CheckCircle,
   Calendar,
-  Mail
+  Mail,
+  ChevronDown
 } from 'lucide-react';
 import { mentors as initialMentors, sessions as mockSessions } from '../../data/mockData';
 import { Mentor } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/auth';
 
-export default function MentorsView() {
-  const [data, setData] = useState<Mentor[]>(() => {
-    const saved = localStorage.getItem('portal_mentors');
-    return saved ? JSON.parse(saved) : initialMentors;
-  });
+interface MentorsViewProps {
+  selectedOrg?: string;
+}
+
+export default function MentorsView({ selectedOrg = 'All Organizations' }: MentorsViewProps) {
+  const { currentUser, hasPermission } = useAuth();
+  const [data, setData] = useState<Mentor[]>([]);
+
+  const canCreate = hasPermission('User and Role Management', 'create');
 
   useEffect(() => {
-    localStorage.setItem('portal_mentors', JSON.stringify(data));
-  }, [data]);
+    async function loadData() {
+      if (!currentUser) return;
+      let query = supabase.from('mentors').select('*').order('created_at', { ascending: false });
+      
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+      if (orgToFilter) {
+        query = query.eq('organization', orgToFilter);
+      }
+
+      const { data: mnts, error } = await query;
+      if (!error && mnts) {
+        setData(mnts);
+      }
+    }
+    loadData();
+  }, [currentUser, selectedOrg]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [subjectFilter, setSubjectFilter] = useState<string>('All');
@@ -46,20 +69,158 @@ export default function MentorsView() {
   const [showToast, setShowToast] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
 
+  // Mentor-role users for the Add Mentor dropdown
+  const [mentorUsers, setMentorUsers] = useState<{ id: string; name: string; email: string; avatar: string }[]>([]);
+
+  const [showSubjectDropdown, setShowSubjectDropdown] = useState<boolean>(false);
+
+  // Load users with Mentor role whenever the modal opens
+  useEffect(() => {
+    if (!showAddMentorModal) {
+      setShowSubjectDropdown(false);
+      return;
+    }
+    if (!currentUser) return;
+    async function loadMentorUsers() {
+      const org = currentUser!.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser!.organization;
+      let query = supabase
+        .from('users')
+        .select('id, name, email, avatar')
+        .eq('role', 'Mentor');
+      if (org) query = query.eq('organization', org);
+      const { data: users, error } = await query;
+      if (!error && users) setMentorUsers(users);
+    }
+    loadMentorUsers();
+  }, [showAddMentorModal, currentUser, selectedOrg]);
+
+  const canUpdate = hasPermission('User and Role Management', 'update');
+
+  // Edit states for an existing mentor profile
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [editExperience, setEditExperience] = useState<string>('4 Years');
+  const [editAvailability, setEditAvailability] = useState<'Full-time' | 'Part-time' | 'Weekends Only' | 'On-demand'>('Full-time');
+  const [editPerformance, setEditPerformance] = useState<'Outstanding' | 'Exceeding' | 'Meeting' | 'Needs Review'>('Exceeding');
+  const [editSubjects, setEditSubjects] = useState<string[]>(['Mathematics']);
+  const [editShowSubjectsDropdown, setEditShowSubjectsDropdown] = useState<boolean>(false);
+
+  // Initialize edit states when selected mentor changes
+  useEffect(() => {
+    if (selectedMentorProfile) {
+      setEditExperience(selectedMentorProfile.experience);
+      setEditAvailability(selectedMentorProfile.availability);
+      setEditPerformance(selectedMentorProfile.performance);
+      setEditSubjects(selectedMentorProfile.subjects);
+      setEditShowSubjectsDropdown(false);
+      setIsEditing(false);
+    }
+  }, [selectedMentorProfile]);
+
+  const handleEditMentorSubmit = async () => {
+    if (!selectedMentorProfile || !currentUser) return;
+    if (!canUpdate) {
+      alert('Action Denied: You do not have permissions to update mentors.');
+      return;
+    }
+    if (editSubjects.length === 0) {
+      alert('Please select at least one subject');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('mentors')
+      .update({
+        experience: editExperience,
+        availability: editAvailability,
+        performance: editPerformance,
+        subjects: editSubjects
+      })
+      .eq('id', selectedMentorProfile.id);
+
+    if (error) {
+      console.error(error);
+      alert('Error updating mentor: ' + error.message);
+      return;
+    }
+
+    setData((prev) =>
+      prev.map((m) =>
+        m.id === selectedMentorProfile.id
+          ? {
+              ...m,
+              experience: editExperience,
+              availability: editAvailability,
+              performance: editPerformance,
+              subjects: editSubjects
+            }
+          : m
+      )
+    );
+
+    setSelectedMentorProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            experience: editExperience,
+            availability: editAvailability,
+            performance: editPerformance,
+            subjects: editSubjects
+          }
+        : null
+    );
+
+    setToastMessage(`Mentor "${selectedMentorProfile.name}" updated successfully!`);
+    setShowToast(true);
+    setIsEditing(false);
+
+    setTimeout(() => {
+      setShowToast(false);
+    }, 3000);
+  };
+
   // Form states for creating a new mentor
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
+  const [formAvatar, setFormAvatar] = useState('');
   const [formSubjects, setFormSubjects] = useState<string[]>(['Mathematics']);
   const [formExperience, setFormExperience] = useState('4 Years');
   const [formAvailability, setFormAvailability] = useState<'Full-time' | 'Part-time' | 'Weekends Only' | 'On-demand'>('Full-time');
   const [formPerformance, setFormPerformance] = useState<'Outstanding' | 'Exceeding' | 'Meeting' | 'Needs Review'>('Exceeding');
 
-  const handleAddMentorSubmit = (e: React.FormEvent) => {
+  // When a mentor user is picked from the dropdown, auto-fill name + email + avatar
+  const handleMentorUserSelect = (userId: string) => {
+    const user = mentorUsers.find((u) => u.id === userId);
+    if (user) {
+      setFormName(user.name);
+      setFormEmail(user.email);
+      setFormAvatar(user.avatar || '');
+    } else {
+      setFormName('');
+      setFormEmail('');
+      setFormAvatar('');
+    }
+  };
+
+  const handleAddMentorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formEmail.trim()) {
-      alert('Please fill in Name and Email fields');
+    if (!formName.trim() || !formEmail.trim() || !currentUser) {
+      alert('Please select a Mentor User');
       return;
     }
+    if (formSubjects.length === 0) {
+      alert('Please select at least one subject');
+      return;
+    }
+    if (!canCreate) {
+      alert('Action Denied: You do not have permissions to add mentors.');
+      return;
+    }
+
+    const resolvedOrg = currentUser.role === 'Super Admin'
+      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      : currentUser.organization;
 
     const newMentor: Mentor = {
       id: `ment-${Date.now()}`,
@@ -72,8 +233,16 @@ export default function MentorsView() {
       availability: formAvailability,
       upcomingSessions: 0,
       performance: formPerformance,
-      avatar: `https://images.unsplash.com/photo-${1530000000000 + Math.floor(Math.random() * 9999999)}?w=150&auto=format&fit=crop&q=80`
+      avatar: formAvatar || `https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80`,
+      organization: resolvedOrg
     };
+
+    const { error } = await supabase.from('mentors').insert([newMentor]);
+    if (error) {
+      console.error(error);
+      alert('Error adding mentor: ' + error.message);
+      return;
+    }
 
     setData((prev) => [newMentor, ...prev]);
     setToastMessage(`Mentor "${formName}" added to faculty successfully!`);
@@ -83,10 +252,12 @@ export default function MentorsView() {
     // Reset form states
     setFormName('');
     setFormEmail('');
+    setFormAvatar('');
     setFormSubjects(['Mathematics']);
     setFormExperience('4 Years');
     setFormAvailability('Full-time');
     setFormPerformance('Exceeding');
+    setMentorUsers([]);
 
     setTimeout(() => {
       setShowToast(false);
@@ -94,7 +265,7 @@ export default function MentorsView() {
   };
 
   // Subjects list compiled from all mentors
-  const allSubjects = Array.from(new Set(initialMentors.flatMap((m) => m.subjects)));
+  const allSubjects = Array.from(new Set(data.flatMap((m) => m.subjects)));
 
   const filteredMentors = data.filter((mentor) => {
     const matchesSearch = mentor.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -112,13 +283,15 @@ export default function MentorsView() {
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tight">Mentor Faculty</h1>
           <p className="text-xs text-slate-400 dark:text-slate-400 mt-0.5">Manage tutors, verify experience ratings, view active allocations and availability</p>
         </div>
-        <button
-          onClick={() => setShowAddMentorModal(true)}
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Mentor</span>
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowAddMentorModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Mentor</span>
+          </button>
+        )}
       </div>
 
       {/* Filters Bar */}
@@ -342,13 +515,30 @@ export default function MentorsView() {
                     </div>
                   </div>
                 </div>
-
                 {/* Profile details body */}
                 <div className="p-6 space-y-5 text-xs max-h-[65vh] overflow-y-auto">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
-                      <span className="text-[9px] uppercase font-bold text-slate-400 block">Teaching Experience</span>
-                      <strong className="text-sm font-black text-slate-700 dark:text-slate-200 mt-1 block">{selectedMentorProfile.experience}</strong>
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Teaching Experience</span>
+                      {isEditing ? (
+                        <select
+                          value={editExperience}
+                          onChange={(e) => setEditExperience(e.target.value)}
+                          className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none"
+                        >
+                          {Array.from({ length: 20 }, (_, i) => {
+                            const years = i + 1;
+                            const label = `${years} Year${years > 1 ? 's' : ''}`;
+                            return (
+                              <option key={label} value={label}>
+                                {label}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      ) : (
+                        <strong className="text-sm font-black text-slate-700 dark:text-slate-200 mt-1 block">{selectedMentorProfile.experience}</strong>
+                      )}
                     </div>
                     <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
                       <span className="text-[9px] uppercase font-bold text-slate-400 block">Performance Index</span>
@@ -360,16 +550,72 @@ export default function MentorsView() {
                     </div>
                   </div>
 
+                  {isEditing && (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Performance Category</span>
+                      <select
+                        value={editPerformance}
+                        onChange={(e) => setEditPerformance(e.target.value as any)}
+                        className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none"
+                      >
+                        <option value="Outstanding">Outstanding</option>
+                        <option value="Exceeding">Exceeding</option>
+                        <option value="Meeting">Meeting</option>
+                        <option value="Needs Review">Needs Review</option>
+                      </select>
+                    </div>
+                  )}
+
                   {/* Teaches Subjects */}
                   <div>
                     <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">Teaches Subjects</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedMentorProfile.subjects.map((sub) => (
-                        <span key={sub} className="px-2.5 py-1 bg-blue-50 dark:bg-blue-900/25 text-blue-600 dark:text-blue-300 font-bold rounded-lg border border-blue-100/40 dark:border-blue-800/40">
-                          {sub}
-                        </span>
-                      ))}
-                    </div>
+                    {isEditing ? (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setEditShowSubjectsDropdown(!editShowSubjectsDropdown)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 flex items-center justify-between text-left cursor-pointer"
+                        >
+                          <span className="truncate pr-2">
+                            {editSubjects.length === 0 ? "Select subjects..." : editSubjects.join(', ')}
+                          </span>
+                          <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${editShowSubjectsDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {editShowSubjectsDropdown && (
+                          <div className="mt-2 p-2.5 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl max-h-40 overflow-y-auto space-y-1.5 scrollbar-thin">
+                            {['Mathematics', 'Physics', 'Organic Chemistry', 'English Literature', 'Computer Science', 'Urdu Grammar'].map((sub) => {
+                              const isChecked = editSubjects.includes(sub);
+                              return (
+                                <label key={sub} className="flex items-center gap-2 cursor-pointer py-1 px-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-700 dark:text-slate-200">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      if (isChecked) {
+                                        setEditSubjects(editSubjects.filter((s) => s !== sub));
+                                      } else {
+                                        setEditSubjects([...editSubjects, sub]);
+                                      }
+                                    }}
+                                    className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/20"
+                                  />
+                                  <span className="text-xs">{sub}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedMentorProfile.subjects.map((sub) => (
+                          <span key={sub} className="px-2.5 py-1 bg-blue-50 dark:bg-blue-900/25 text-blue-600 dark:text-blue-300 font-bold rounded-lg border border-blue-100/40 dark:border-blue-800/40">
+                            {sub}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Allocated Students */}
@@ -387,34 +633,74 @@ export default function MentorsView() {
                     </div>
                   </div>
 
-                  {/* Faculty Schedule Overview snippet */}
+                  {/* Availability Window */}
                   <div className="p-3 bg-slate-50/60 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-800/60 rounded-xl">
                     <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Availability Window</span>
-                    <div className="flex items-center gap-1 text-slate-600 dark:text-slate-300 font-extrabold text-xs">
-                      <Clock className="w-4 h-4 text-amber-500 shrink-0" />
-                      <span>{selectedMentorProfile.availability}</span>
-                    </div>
+                    {isEditing ? (
+                      <select
+                        value={editAvailability}
+                        onChange={(e) => setEditAvailability(e.target.value as any)}
+                        className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none"
+                      >
+                        <option value="Full-time">Full-time</option>
+                        <option value="Part-time">Part-time</option>
+                        <option value="Weekends Only">Weekends Only</option>
+                        <option value="On-demand">On-demand</option>
+                      </select>
+                    ) : (
+                      <div className="flex items-center gap-1 text-slate-600 dark:text-slate-300 font-extrabold text-xs">
+                        <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+                        <span>{selectedMentorProfile.availability}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Footer */}
                 <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
-                  <button
-                    onClick={() => {
-                      const mentor = selectedMentorProfile;
-                      setSelectedMentorProfile(null);
-                      setSelectedMentorSchedules(mentor);
-                    }}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
-                  >
-                    View Schedules
-                  </button>
-                  <button
-                    onClick={() => setSelectedMentorProfile(null)}
-                    className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg transition-all cursor-pointer"
-                  >
-                    Close
-                  </button>
+                  {isEditing ? (
+                    <>
+                      <button
+                        onClick={handleEditMentorSubmit}
+                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
+                      >
+                        Save Changes
+                      </button>
+                      <button
+                        onClick={() => setIsEditing(false)}
+                        className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg transition-all cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {canUpdate && (
+                        <button
+                          onClick={() => setIsEditing(true)}
+                          className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
+                        >
+                          Edit Details
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          const mentor = selectedMentorProfile;
+                          setSelectedMentorProfile(null);
+                          setSelectedMentorSchedules(mentor);
+                        }}
+                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
+                      >
+                        View Schedules
+                      </button>
+                      <button
+                        onClick={() => setSelectedMentorProfile(null)}
+                        className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg transition-all cursor-pointer"
+                      >
+                        Close
+                      </button>
+                    </>
+                  )}
                 </div>
               </motion.div>
             </div>
@@ -553,38 +839,55 @@ export default function MentorsView() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Mentor Name</label>
-                        <input
-                          type="text"
+                        <select
                           required
-                          placeholder="e.g. Faisal Ahmad"
-                          value={formName}
-                          onChange={(e) => setFormName(e.target.value)}
+                          defaultValue=""
+                          onChange={(e) => handleMentorUserSelect(e.target.value)}
                           className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                        />
+                        >
+                          <option value="" disabled>Select a mentor user…</option>
+                          {mentorUsers.length === 0 && (
+                            <option disabled>No mentor-role users found</option>
+                          )}
+                          {mentorUsers.map((u) => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Professional Email</label>
-                        <input
-                          type="email"
-                          required
-                          placeholder="e.g. mentor@edvalley.com"
-                          value={formEmail}
-                          onChange={(e) => setFormEmail(e.target.value)}
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                        />
+                        <div className="relative">
+                          <Mail className="absolute inset-y-0 left-2.5 h-3.5 w-3.5 my-auto text-slate-400 pointer-events-none" />
+                          <input
+                            type="email"
+                            required
+                            readOnly
+                            placeholder="Auto-filled from selected mentor"
+                            value={formEmail}
+                            className="w-full pl-8 pr-2.5 py-2.5 bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none text-slate-600 dark:text-slate-300 cursor-not-allowed"
+                          />
+                        </div>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Experience Years</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. 5 Years"
+                        <select
                           value={formExperience}
                           onChange={(e) => setFormExperience(e.target.value)}
                           className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                        />
+                        >
+                          {Array.from({ length: 20 }, (_, i) => {
+                            const years = i + 1;
+                            const label = `${years} Year${years > 1 ? 's' : ''}`;
+                            return (
+                              <option key={label} value={label}>
+                                {label}
+                              </option>
+                            );
+                          })}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Availability Window</label>
@@ -616,18 +919,42 @@ export default function MentorsView() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Teaches Subject</label>
-                        <select
-                          onChange={(e) => setFormSubjects([e.target.value])}
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Teaches Subjects</label>
+                        <button
+                          type="button"
+                          onClick={() => setShowSubjectDropdown(!showSubjectDropdown)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 flex items-center justify-between text-left cursor-pointer"
                         >
-                          <option value="Mathematics">Mathematics</option>
-                          <option value="Physics">Physics</option>
-                          <option value="Organic Chemistry">Organic Chemistry</option>
-                          <option value="English Literature">English Literature</option>
-                          <option value="Computer Science">Computer Science</option>
-                          <option value="Urdu Grammar">Urdu Grammar</option>
-                        </select>
+                          <span className="truncate pr-2">
+                            {formSubjects.length === 0 ? "Select subjects..." : formSubjects.join(', ')}
+                          </span>
+                          <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${showSubjectDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {showSubjectDropdown && (
+                          <div className="mt-2 p-2.5 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl max-h-40 overflow-y-auto space-y-1.5 scrollbar-thin">
+                            {['Mathematics', 'Physics', 'Organic Chemistry', 'English Literature', 'Computer Science', 'Urdu Grammar'].map((sub) => {
+                              const isChecked = formSubjects.includes(sub);
+                              return (
+                                <label key={sub} className="flex items-center gap-2 cursor-pointer py-1 px-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-700 dark:text-slate-200">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      if (isChecked) {
+                                        setFormSubjects(formSubjects.filter((s) => s !== sub));
+                                      } else {
+                                        setFormSubjects([...formSubjects, sub]);
+                                      }
+                                    }}
+                                    className="w-3.5 h-3.5 rounded border-slate-305 text-blue-600 focus:ring-blue-500/20"
+                                  />
+                                  <span className="text-xs">{sub}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

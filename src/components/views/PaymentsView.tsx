@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   DollarSign,
@@ -21,19 +21,87 @@ import {
   ChevronRight,
   Building,
   Mail,
-  Receipt
+  Receipt,
+  X
 } from 'lucide-react';
-import { payments as initialPayments, reportsAnalytics } from '../../data/mockData';
+import { payments as initialPayments } from '../../data/mockData';
 import { Payment } from '../../types';
 import { CustomBarChart } from '../Charts';
+import { supabase } from '../../lib/supabase';
 
-export default function PaymentsView() {
-  const [data, setData] = useState<Payment[]>(initialPayments);
+import { useAuth } from '../../lib/auth';
+
+interface PaymentsViewProps {
+  selectedOrg?: string;
+}
+
+export default function PaymentsView({ selectedOrg = 'All Organizations' }: PaymentsViewProps) {
+  const { currentUser, hasPermission, logSecurityAudit } = useAuth();
+  const [data, setData] = useState<Payment[]>([]);
+  const [revenueTrend, setRevenueTrend] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState(1);
   const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
+
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [formStudent, setFormStudent] = useState('');
+  const [formAmount, setFormAmount] = useState(1000);
+  const [formPlan, setFormPlan] = useState<'Monthly Pro' | 'Annual Elite' | 'Quarterly Basic' | 'One-Time Session'>('Monthly Pro');
+  const [orgStudents, setOrgStudents] = useState<{ id: string, name: string }[]>([]);
+
   const itemsPerPage = 8;
+
+  const canRead = hasPermission('Financial Transactions', 'read') || currentUser?.role === 'Student';
+
+  useEffect(() => {
+    if (!currentUser || !canRead) return;
+
+    async function loadData() {
+      let query = supabase.from('payments').select('*').order('date', { ascending: false });
+
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+      if (orgToFilter) {
+        query = query.eq('organization', orgToFilter);
+      }
+
+      if (currentUser.role === 'Student') {
+        query = query.eq('student', currentUser.name);
+      }
+
+      const { data: pays, error: payErr } = await query;
+      if (!payErr && pays) {
+        setData(pays);
+      }
+
+      // Load revenue trend report (only for admin roles)
+      if (currentUser.role === 'Super Admin' || currentUser.role === 'Organization Admin') {
+        let trendQuery = supabase.from('report_revenue_trend').select('*').order('id', { ascending: true });
+        if (orgToFilter) {
+          trendQuery = trendQuery.eq('organization', orgToFilter);
+        }
+        const { data: trend, error: trendErr } = await trendQuery;
+        if (!trendErr && trend) {
+          setRevenueTrend(trend);
+        }
+      }
+
+      // Load org students for the modal dropdown
+      if (currentUser.role !== 'Student') {
+        let stuQuery = supabase.from('students').select('id, name').order('name', { ascending: true });
+        if (orgToFilter) {
+          stuQuery = stuQuery.eq('organization', orgToFilter);
+        }
+        const { data: stuData } = await stuQuery;
+        if (stuData) {
+          setOrgStudents(stuData);
+        }
+      }
+    }
+    loadData();
+  }, [currentUser, canRead, selectedOrg]);
 
   // Filters logic
   const filteredPayments = data.filter((pay) => {
@@ -63,12 +131,129 @@ export default function PaymentsView() {
     }, 3500);
   };
 
-  const handleDownloadInvoice = (id: string) => {
+  const handleDownloadInvoice = async (id: string) => {
+    if (!hasPermission('Financial Transactions', 'export') && currentUser?.role !== 'Student') {
+      alert('Action Denied: You do not have permissions to download financial invoices.');
+      return;
+    }
+
     setNotificationMsg(`Success: Exporting invoice PDF for #${id.toUpperCase()}...`);
+    
+    await logSecurityAudit(
+      'Export Invoice Successful',
+      'Medium',
+      `Exported billing invoice receipt #${id}.`
+    );
+
     setTimeout(() => {
       setNotificationMsg(null);
     }, 2500);
   };
+
+  const handleStatusChange = async (paymentId: string, newStatus: Payment['status']) => {
+    if (!hasPermission('Financial Transactions', 'update') && currentUser?.role !== 'Super Admin') {
+      alert('Action Denied: You do not have permissions to update invoices.');
+      return;
+    }
+
+    const response = await fetch(`/api/payments?id=eq.${paymentId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ status: newStatus })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(errorText);
+      alert('Error updating status: ' + errorText);
+      return;
+    }
+
+    setData((prev) => prev.map(p => p.id === paymentId ? { ...p, status: newStatus } : p));
+    setNotificationMsg(`Success: Invoice #${paymentId.toUpperCase()} status updated to ${newStatus}.`);
+    
+    await logSecurityAudit(
+      'Update Invoice Status',
+      'Info',
+      `Updated invoice #${paymentId} status to ${newStatus}.`
+    );
+
+    setTimeout(() => {
+      setNotificationMsg(null);
+    }, 2500);
+  };
+
+  const handleGenerateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formStudent.trim() || !currentUser) return;
+
+    if (!hasPermission('Financial Transactions', 'create') && currentUser.role !== 'Super Admin') {
+      alert('Action Denied: You do not have permissions to generate invoices.');
+      return;
+    }
+
+    const resolvedOrg = currentUser.role === 'Super Admin'
+      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      : currentUser.organization;
+
+    const newPayment: Payment = {
+      id: `inv-${Date.now().toString().slice(-6)}`,
+      amount: formAmount,
+      student: formStudent,
+      organization: resolvedOrg,
+      status: 'Pending',
+      date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+      invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+      plan: formPlan,
+    };
+
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(newPayment)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(errorText);
+      alert('Error generating invoice: ' + errorText);
+      return;
+    }
+
+    await logSecurityAudit(
+      'Generate Invoice Successful',
+      'Info',
+      `Generated new invoice for ${formStudent} in organization ${resolvedOrg}.`
+    );
+
+    setData((prev) => [newPayment, ...prev]);
+    setNotificationMsg(`Success: Invoice generated for ${formStudent}`);
+    setShowGenerateModal(false);
+    
+    setFormStudent('');
+    setFormAmount(1000);
+    setFormPlan('Monthly Pro');
+
+    setTimeout(() => {
+      setNotificationMsg(null);
+    }, 3500);
+  };
+
+  if (!canRead) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm text-center font-sans">
+        <AlertCircle className="w-12 h-12 text-rose-500 mb-4" />
+        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Security Access Violation</h3>
+        <p className="text-xs text-slate-400 mt-2 max-w-sm">
+          You do not hold the required authorization credentials to view platform financial metrics and transactions history.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -88,13 +273,113 @@ export default function PaymentsView() {
         )}
       </AnimatePresence>
 
+      {/* Generate Invoice Modal */}
+      <AnimatePresence>
+        {showGenerateModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => setShowGenerateModal(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-750 shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100"
+            >
+              <div className="bg-blue-600 text-white p-5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-black tracking-tight flex items-center gap-1.5">
+                    <Receipt className="w-4 h-4" />
+                    <span>Generate New Invoice</span>
+                  </h2>
+                  <p className="text-[10px] text-blue-100 mt-0.5">Create a new billing record for a student</p>
+                </div>
+                <button
+                  onClick={() => setShowGenerateModal(false)}
+                  className="p-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white transition-all cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleGenerateSubmit}>
+                <div className="p-5 space-y-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Student Name</label>
+                    <select
+                      required
+                      value={formStudent}
+                      onChange={(e) => setFormStudent(e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                    >
+                      <option value="" disabled>Select a student</option>
+                      {orgStudents.map(student => (
+                        <option key={student.id} value={student.name}>{student.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Amount (₹)</label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      value={formAmount}
+                      onChange={(e) => setFormAmount(Number(e.target.value))}
+                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Plan</label>
+                    <select
+                      value={formPlan}
+                      onChange={(e) => setFormPlan(e.target.value as any)}
+                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                    >
+                      <option value="Monthly Pro">Monthly Pro</option>
+                      <option value="Annual Elite">Annual Elite</option>
+                      <option value="Quarterly Basic">Quarterly Basic</option>
+                      <option value="One-Time Session">One-Time Session</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowGenerateModal(false)}
+                    className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-lg transition-all cursor-pointer text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 text-xs shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create Invoice</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tight">Financial Ledgers</h1>
           <p className="text-xs text-slate-400 dark:text-slate-400 mt-0.5">Collect invoices, view subscription pools, dispatch reminders, and review historical indices</p>
         </div>
-        <button className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0">
+        <button 
+          onClick={() => setShowGenerateModal(true)}
+          className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
+        >
           <Plus className="w-4 h-4" />
           <span>Generate Invoice</span>
         </button>
@@ -104,19 +389,27 @@ export default function PaymentsView() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
         <div className="p-1">
           <span className="text-[10px] text-slate-400 uppercase font-bold block">Gross Billings</span>
-          <span className="text-lg font-black text-slate-800 dark:text-white mt-1.5 block">₹8,45,200</span>
+          <span className="text-lg font-black text-slate-800 dark:text-white mt-1.5 block">
+            ₹{data.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+          </span>
         </div>
         <div className="p-1">
           <span className="text-[10px] text-slate-400 uppercase font-bold block">Paid / Received</span>
-          <span className="text-lg font-black text-green-600 mt-1.5 block">₹6,90,500</span>
+          <span className="text-lg font-black text-green-600 mt-1.5 block">
+            ₹{data.filter(p => p.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+          </span>
         </div>
         <div className="p-1">
           <span className="text-[10px] text-slate-400 uppercase font-bold block">Outstanding Overdue</span>
-          <span className="text-lg font-black text-red-500 mt-1.5 block">₹1,15,700</span>
+          <span className="text-lg font-black text-red-500 mt-1.5 block">
+            ₹{data.filter(p => p.status === 'Failed' || (p.status as any) === 'Overdue').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+          </span>
         </div>
         <div className="p-1">
           <span className="text-[10px] text-slate-400 uppercase font-bold block">Awaiting Pending</span>
-          <span className="text-lg font-black text-amber-500 mt-1.5 block">₹39,000</span>
+          <span className="text-lg font-black text-amber-500 mt-1.5 block">
+            ₹{data.filter(p => p.status === 'Pending').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+          </span>
         </div>
       </div>
 
@@ -133,7 +426,7 @@ export default function PaymentsView() {
           </div>
           {/* Custom bar chart loaded */}
           <CustomBarChart
-            data={reportsAnalytics.revenueTrend}
+            data={revenueTrend}
             xAxisKey="month"
             series={[
               { key: 'Subscriptions', color: '#14B8A6', label: 'Subscriptions' },
@@ -207,9 +500,18 @@ export default function PaymentsView() {
                       </td>
                       <td className="px-5 py-3.5 font-mono text-slate-400">{pay.date}</td>
                       <td className="px-5 py-3.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[8.5px] font-extrabold ${getStatusBadgeColor(pay.status)}`}>
-                          {pay.status}
-                        </span>
+                        <select
+                          value={pay.status}
+                          onChange={(e) => handleStatusChange(pay.id, e.target.value as Payment['status'])}
+                          className={`px-2 py-0.5 rounded-full text-[8.5px] font-extrabold cursor-pointer outline-none appearance-none ${getStatusBadgeColor(pay.status)}`}
+                          disabled={!hasPermission('Financial Transactions', 'update') && currentUser?.role !== 'Super Admin'}
+                        >
+                          <option value="Pending" className="bg-white text-slate-800">Pending</option>
+                          <option value="Paid" className="bg-white text-slate-800">Paid</option>
+                          <option value="Overdue" className="bg-white text-slate-800">Overdue</option>
+                          <option value="Failed" className="bg-white text-slate-800">Failed</option>
+                          <option value="Refunded" className="bg-white text-slate-800">Refunded</option>
+                        </select>
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex justify-end gap-1.5">

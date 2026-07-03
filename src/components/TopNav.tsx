@@ -21,9 +21,13 @@ import {
   Zap,
   CheckCircle,
   PlusCircle,
-  Building
+  Building,
+  Lock
 } from 'lucide-react';
-import { organizations } from '../data/mockData';
+import { organizations as fallbackOrgs } from '../data/mockData';
+import { Organization } from '../types';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth';
 
 interface TopNavProps {
   activeTab: string;
@@ -44,6 +48,7 @@ export default function TopNav({
   onLogout,
   onQuickAction
 }: TopNavProps) {
+  const { currentUser, hasPermission } = useAuth();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,6 +56,22 @@ export default function TopNav({
   const [profileOpen, setProfileOpen] = useState(false);
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [orgsList, setOrgsList] = useState<Organization[]>(fallbackOrgs);
+
+  const canCreateSession = hasPermission('Session Scheduling', 'create');
+  const canAssignMentor = hasPermission('Mentor Assignments', 'create') || hasPermission('Mentor Assignments', 'assign');
+  const canAddStudent = hasPermission('User and Role Management', 'create');
+  const showQuickActions = canCreateSession || canAssignMentor || canAddStudent;
+
+  useEffect(() => {
+    async function loadOrgs() {
+      const { data, error } = await supabase.from('organizations').select('*').order('name');
+      if (!error && data) {
+        setOrgsList(data);
+      }
+    }
+    loadOrgs();
+  }, []);
 
   // Initialize and listen to theme changes
   useEffect(() => {
@@ -74,13 +95,122 @@ export default function TopNav({
     }
   };
 
-  // Sample notifications list
-  const notifications = [
-    { id: 1, title: 'Evaluation Pending', body: 'Zoya Khan\'s Chemistry evaluation is ready for approval.', time: '5m ago', read: false },
-    { id: 2, title: 'Reschedule Request', body: 'Sameer Rather requested to move Physics slot to July 5th.', time: '1h ago', read: false },
-    { id: 3, title: 'Payment Success', body: 'Bright Future Academy paid Enterprise license invoice.', time: '4h ago', read: true },
-    { id: 4, title: 'New Mentor Signed', body: 'Mushtaq Lone completed the onboarding verification.', time: '1d ago', read: true }
-  ];
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [lastReadTime, setLastReadTime] = useState<string>(
+    () => localStorage.getItem('last_read_notifications_time') || new Date(0).toISOString()
+  );
+
+  const getRelativeTime = (timestamp: string) => {
+    const now = new Date();
+    const past = new Date(timestamp);
+    const diffMs = now.getTime() - past.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  };
+
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    async function fetchNotifications() {
+      const orgFilter = currentUser.role === 'Super Admin' 
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+
+      // 1. Fetch pending evaluations
+      let evalsQuery = supabase.from('evaluations').select('*').order('created_at', { ascending: false }).limit(3);
+      if (orgFilter) evalsQuery = evalsQuery.eq('organization', orgFilter);
+      const { data: evals } = await evalsQuery;
+
+      // 2. Fetch payments
+      let paysQuery = supabase.from('payments').select('*').order('created_at', { ascending: false }).limit(3);
+      if (orgFilter) paysQuery = paysQuery.eq('organization', orgFilter);
+      const { data: payments } = await paysQuery;
+
+      // 3. Fetch sessions
+      let sessQuery = supabase.from('sessions').select('*').order('created_at', { ascending: false }).limit(3);
+      if (orgFilter) sessQuery = sessQuery.eq('organization', orgFilter);
+      const { data: sessions } = await sessQuery;
+
+      // 4. Fetch new users
+      let usersQuery = supabase.from('users').select('*').order('created_at', { ascending: false }).limit(3);
+      if (orgFilter) usersQuery = usersQuery.eq('organization', orgFilter);
+      const { data: users } = await usersQuery;
+
+      const combined: any[] = [];
+
+      if (evals) {
+        evals.forEach((item) => {
+          combined.push({
+            id: `eval-${item.id}`,
+            title: 'Evaluation Pending',
+            body: `${item.studentName}'s Chemistry evaluation is ready for approval.`,
+            time: getRelativeTime(item.created_at),
+            timestamp: item.created_at,
+            read: new Date(item.created_at) <= new Date(lastReadTime)
+          });
+        });
+      }
+
+      if (payments) {
+        payments.forEach((item) => {
+          combined.push({
+            id: `pay-${item.id}`,
+            title: 'Payment Success',
+            body: `${item.student} paid ${item.plan} invoice of $${item.amount}.`,
+            time: getRelativeTime(item.created_at),
+            timestamp: item.created_at,
+            read: new Date(item.created_at) <= new Date(lastReadTime)
+          });
+        });
+      }
+
+      if (sessions) {
+        sessions.forEach((item) => {
+          combined.push({
+            id: `sess-${item.id}`,
+            title: 'Session Booked',
+            body: `${item.mentor} scheduled a session with ${item.student} on ${item.date}.`,
+            time: getRelativeTime(item.created_at),
+            timestamp: item.created_at,
+            read: new Date(item.created_at) <= new Date(lastReadTime)
+          });
+        });
+      }
+
+      if (users) {
+        users.forEach((item) => {
+          if (item.email.toLowerCase() === currentUser.email.toLowerCase()) return;
+          combined.push({
+            id: `usr-${item.id}`,
+            title: 'New User Registered',
+            body: `${item.name} (${item.role}) joined the organization.`,
+            time: getRelativeTime(item.created_at),
+            timestamp: item.created_at,
+            read: new Date(item.created_at) <= new Date(lastReadTime)
+          });
+        });
+      }
+
+      combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setNotifications(combined.slice(0, 6));
+    }
+
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [currentUser, selectedOrg, lastReadTime]);
+
+  const handleMarkAllAsRead = () => {
+    const nowStr = new Date().toISOString();
+    localStorage.setItem('last_read_notifications_time', nowStr);
+    setLastReadTime(nowStr);
+  };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -99,16 +229,22 @@ export default function TopNav({
         {/* Multi-Tenant Org Switcher */}
         <div className="relative">
           <button
-            onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs font-semibold text-left select-none"
+            onClick={() => currentUser?.role === 'Super Admin' && setOrgDropdownOpen(!orgDropdownOpen)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs font-semibold text-left select-none ${
+              currentUser?.role !== 'Super Admin' ? 'cursor-default pointer-events-none' : 'cursor-pointer'
+            }`}
           >
             <Building className="w-4 h-4 text-blue-500 shrink-0" />
             <span className="truncate max-w-[120px] sm:max-w-[160px]">{selectedOrg}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            {currentUser?.role === 'Super Admin' ? (
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            ) : (
+              <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+            )}
           </button>
 
           <AnimatePresence>
-            {orgDropdownOpen && (
+            {orgDropdownOpen && currentUser?.role === 'Super Admin' && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setOrgDropdownOpen(false)} />
                 <motion.div
@@ -120,7 +256,23 @@ export default function TopNav({
                   <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-50 dark:border-slate-700">
                     Switch Tenants
                   </div>
-                  {organizations.map((org) => (
+                  <button
+                    onClick={() => {
+                      setSelectedOrg('All Organizations');
+                      setOrgDropdownOpen(false);
+                    }}
+                    className={`flex items-center justify-between w-full px-3 py-2 text-xs text-left ${
+                      selectedOrg === 'All Organizations'
+                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                    }`}
+                  >
+                    <span className="truncate font-semibold">All Organizations</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-905 font-medium text-blue-600 dark:text-blue-400 shrink-0">
+                      Cross-Org
+                    </span>
+                  </button>
+                  {orgsList.map((org) => (
                     <button
                       key={org.id}
                       onClick={() => {
@@ -236,61 +388,69 @@ export default function TopNav({
       {/* Right Side Icons & Actions */}
       <div className="flex items-center gap-3">
         {/* Quick Actions Dropdown */}
-        <div className="relative hidden md:block">
-          <button
-            onClick={() => setQuickActionsOpen(!quickActionsOpen)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer select-none"
-          >
-            <Zap className="w-3.5 h-3.5 text-blue-100" />
-            <span>Quick Action</span>
-            <ChevronDown className="w-3 h-3 text-blue-100" />
-          </button>
+        {showQuickActions && (
+          <div className="relative hidden md:block">
+            <button
+              onClick={() => setQuickActionsOpen(!quickActionsOpen)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer select-none"
+            >
+              <Zap className="w-3.5 h-3.5 text-blue-100" />
+              <span>Quick Action</span>
+              <ChevronDown className="w-3 h-3 text-blue-100" />
+            </button>
 
-          <AnimatePresence>
-            {quickActionsOpen && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setQuickActionsOpen(false)} />
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  className="absolute right-0 mt-1.5 w-52 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-xl z-40 py-1"
-                >
-                  <button
-                    onClick={() => {
-                      setQuickActionsOpen(false);
-                      onQuickAction('create_session');
-                    }}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
+            <AnimatePresence>
+              {quickActionsOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setQuickActionsOpen(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="absolute right-0 mt-1.5 w-52 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-xl z-40 py-1"
                   >
-                    <PlusCircle className="w-4 h-4 text-blue-500" />
-                    <span>Create New Session</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setQuickActionsOpen(false);
-                      onQuickAction('assign_mentor');
-                    }}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
-                  >
-                    <PlusCircle className="w-4 h-4 text-teal-500" />
-                    <span>Assign Mentor</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setQuickActionsOpen(false);
-                      onQuickAction('add_student');
-                    }}
-                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
-                  >
-                    <PlusCircle className="w-4 h-4 text-emerald-500" />
-                    <span>Add New Student</span>
-                  </button>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
-        </div>
+                    {canCreateSession && (
+                      <button
+                        onClick={() => {
+                          setQuickActionsOpen(false);
+                          onQuickAction('create_session');
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
+                      >
+                        <PlusCircle className="w-4 h-4 text-blue-500" />
+                        <span>Create New Session</span>
+                      </button>
+                    )}
+                    {canAssignMentor && (
+                      <button
+                        onClick={() => {
+                          setQuickActionsOpen(false);
+                          onQuickAction('assign_mentor');
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
+                      >
+                        <PlusCircle className="w-4 h-4 text-teal-500" />
+                        <span>Assign Mentor</span>
+                      </button>
+                    )}
+                    {canAddStudent && (
+                      <button
+                        onClick={() => {
+                          setQuickActionsOpen(false);
+                          onQuickAction('add_student');
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
+                      >
+                        <PlusCircle className="w-4 h-4 text-emerald-500" />
+                        <span>Add New Student</span>
+                      </button>
+                    )}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
 
         {/* Theme Toggle Button */}
         <button
@@ -325,23 +485,34 @@ export default function TopNav({
                 >
                   <div className="flex items-center justify-between px-2 py-1.5 border-b border-slate-50 dark:border-slate-700 mb-2">
                     <span className="font-bold text-slate-700 dark:text-slate-200">Notifications</span>
-                    <span className="text-[10px] text-blue-500 cursor-pointer font-medium hover:underline">Mark all as read</span>
+                    <span
+                      onClick={handleMarkAllAsRead}
+                      className="text-[10px] text-blue-500 cursor-pointer font-medium hover:underline"
+                    >
+                      Mark all as read
+                    </span>
                   </div>
                   <div className="space-y-1 max-h-[260px] overflow-y-auto">
-                    {notifications.map((notif) => (
-                      <div
-                        key={notif.id}
-                        className={`p-2 rounded-lg transition-colors ${
-                          notif.read ? 'hover:bg-slate-50 dark:hover:bg-slate-700/30' : 'bg-slate-50 dark:bg-slate-700/40 border-l-2 border-blue-500'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="font-semibold text-slate-700 dark:text-slate-200">{notif.title}</span>
-                          <span className="text-[9px] text-slate-400 font-mono">{notif.time}</span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-normal">{notif.body}</p>
+                    {notifications.length === 0 ? (
+                      <div className="py-8 text-center text-slate-400 dark:text-slate-500 text-[11px]">
+                        No new notifications
                       </div>
-                    ))}
+                    ) : (
+                      notifications.map((notif) => (
+                        <div
+                          key={notif.id}
+                          className={`p-2 rounded-lg transition-colors ${
+                            notif.read ? 'hover:bg-slate-50 dark:hover:bg-slate-700/30' : 'bg-slate-50 dark:bg-slate-700/40 border-l-2 border-blue-500'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">{notif.title}</span>
+                            <span className="text-[9px] text-slate-400 font-mono">{notif.time}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-normal">{notif.body}</p>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </motion.div>
               </>
@@ -356,8 +527,8 @@ export default function TopNav({
             className="flex items-center gap-1.5 focus:outline-none select-none"
           >
             <img
-              src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80"
-              alt="Admin"
+              src={currentUser?.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'}
+              alt={currentUser?.role || 'User'}
               referrerPolicy="no-referrer"
               className="w-8 h-8 rounded-lg object-cover ring-2 ring-slate-100 dark:ring-slate-800"
             />
@@ -375,8 +546,8 @@ export default function TopNav({
                   className="absolute right-0 mt-1.5 w-52 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-xl z-40 py-1 text-xs"
                 >
                   <div className="px-3.5 py-2.5 border-b border-slate-50 dark:border-slate-700 flex flex-col">
-                    <span className="font-semibold text-slate-700 dark:text-slate-200">Mahin Bhat</span>
-                    <span className="text-[10px] text-slate-400 mt-0.5">mahinbhat@gmail.com</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{currentUser?.name || 'Loading user...'}</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5">{currentUser?.email || ''}</span>
                   </div>
                   <button
                     onClick={() => { setProfileOpen(false); setActiveTab('profile'); }}

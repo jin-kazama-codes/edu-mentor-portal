@@ -24,25 +24,72 @@ import {
   CheckCircle,
   Clock,
   User,
-  Mail
+  Mail,
+  Phone,
+  Upload,
+  Camera
 } from 'lucide-react';
 import { students as initialStudents, sessions as mockSessions } from '../../data/mockData';
 import { Student } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/auth';
 
 interface StudentsViewProps {
   defaultAddOpen?: boolean;
+  selectedOrg?: string;
 }
 
-export default function StudentsView({ defaultAddOpen = false }: StudentsViewProps) {
-  const [data, setData] = useState<Student[]>(() => {
-    const saved = localStorage.getItem('portal_students');
-    return saved ? JSON.parse(saved) : initialStudents;
-  });
+export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'All Organizations' }: StudentsViewProps) {
+  const { currentUser, hasPermission, logSecurityAudit } = useAuth();
+  const [data, setData] = useState<Student[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [gradeFilter, setGradeFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 9;
+
+  const canRead = hasPermission('User and Role Management', 'read') || currentUser?.role === 'Mentor' || currentUser?.role === 'Assistant';
+  const canCreate = hasPermission('User and Role Management', 'create');
+  const canUpdate = hasPermission('User and Role Management', 'update');
+  const canDelete = hasPermission('User and Role Management', 'delete');
+
+  useEffect(() => {
+    if (!currentUser || !canRead) return;
+
+    async function loadData() {
+      let query = supabase.from('students').select('*').order('created_at', { ascending: false });
+      
+      // Enforce organization boundaries
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+      if (orgToFilter) {
+        query = query.eq('organization', orgToFilter);
+      }
+
+      // Enforce Mentor assigned students boundary
+      if (currentUser.role === 'Mentor') {
+        query = query.eq('mentor', currentUser.name);
+      }
+
+      // Enforce Assistant attached mentor's students boundary
+      // If mentorName is resolved, show that mentor's students only
+      // If no mentorName linked (standalone assistant), show all org students
+      if (currentUser.role === 'Assistant' && currentUser.mentorName) {
+        query = query.eq('mentor', currentUser.mentorName);
+      }
+      // Note: if Assistant has no mentorName, the org filter above already scopes to their org
+
+      const { data: stds, error } = await query;
+      if (error) {
+        console.error('StudentsView: Error loading students:', error.message);
+      }
+      if (!error && stds) {
+        setData(stds);
+      }
+    }
+    loadData();
+  }, [currentUser, canRead, selectedOrg]);
 
   // Selected Student Details Modal state
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -51,62 +98,154 @@ export default function StudentsView({ defaultAddOpen = false }: StudentsViewPro
   const [toastMessage, setToastMessage] = useState<string>('');
 
   useEffect(() => {
-    localStorage.setItem('portal_students', JSON.stringify(data));
-  }, [data]);
-
-  useEffect(() => {
     if (defaultAddOpen) {
       setShowAddStudentModal(true);
     }
   }, [defaultAddOpen]);
 
+  // Mentors from the same organization (for the Assigned Mentor dropdown)
+  const [orgMentors, setOrgMentors] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    async function loadOrgMentors() {
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+      let q = supabase.from('mentors').select('id, name').order('name');
+      if (orgToFilter) q = q.eq('organization', orgToFilter);
+      const { data: mnts } = await q;
+      if (mnts) {
+        setOrgMentors(mnts);
+        // Auto-select first mentor when form is blank
+        if (mnts.length > 0) setFormMentor((prev) => prev || mnts[0].name);
+      }
+    }
+    loadOrgMentors();
+  }, [currentUser, selectedOrg]);
+
   // Form states for creating a new student
+  const todayFormatted = () => {
+    const d = new Date();
+    return d.toISOString().split('T')[0]; // yyyy-mm-dd
+  };
+
   const [formName, setFormName] = useState('');
   const [formAge, setFormAge] = useState(16);
+  const [formPhone, setFormPhone] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [formGender, setFormGender] = useState<'Male' | 'Female' | 'Others' | ''>('');
   const [formGrade, setFormGrade] = useState('11th Grade');
-  const [formMentor, setFormMentor] = useState('Aadil Bhat');
+  const [formMentor, setFormMentor] = useState('');
   const [formGuardian, setFormGuardian] = useState('');
   const [formStatus, setFormStatus] = useState<'Active' | 'On Leave' | 'Graduated' | 'Suspended'>('Active');
-  const [formProgress, setFormProgress] = useState(80);
-  const [formAttendance, setFormAttendance] = useState(92);
-  const [formUpcomingSession, setFormUpcomingSession] = useState('July 10, 2026 - Derivative Integration');
+  const [formProgress, setFormProgress] = useState(0);
+  const [formAttendance, setFormAttendance] = useState(0);
+  const [formSessionDate, setFormSessionDate] = useState(todayFormatted());
+  const [formSessionTopic, setFormSessionTopic] = useState('');
+  const [formAvatarPreview, setFormAvatarPreview] = useState<string>('');
+  const [formAvatarUrl, setFormAvatarUrl] = useState<string>('');
+  const avatarFileRef = React.useRef<HTMLInputElement>(null);
 
-  const handleAddStudentSubmit = (e: React.FormEvent) => {
+  // Handle avatar file selection → convert to data URL for preview + storage
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      setFormAvatarPreview(result);
+      setFormAvatarUrl(result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAddStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formGuardian.trim()) {
-      alert('Please fill in Name and Guardian fields');
+    if (!formName.trim() || !formGuardian.trim() || !currentUser) return;
+    if (!canCreate) {
+      alert('Action Denied: You do not have permissions to enroll new students.');
       return;
     }
 
+    const resolvedOrg = currentUser.role === 'Super Admin'
+      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      : currentUser.organization;
+    const orgDomain = resolvedOrg.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '') + '.com';
+    // Use user-provided email or auto-generate one as fallback
+    const email = formEmail.trim() || `${formName.toLowerCase().trim().replace(/\s+/g, '.')}@${orgDomain}`;
+    // Use uploaded avatar or a default placeholder
+    const avatarToSave = formAvatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(formName)}&background=6366f1&color=fff&size=150`;
+
+    // Generate org-unique student ID: e.g. BFA-2026-00143
+    const orgPrefix = resolvedOrg
+      .split(' ')
+      .map((w: string) => w.charAt(0).toUpperCase())
+      .join('');
+    const uniqueNum = Date.now().toString().slice(-5);
+    const studentId = `${orgPrefix}-${new Date().getFullYear()}-${uniqueNum}`;
+
+    // Build upcoming session string from date + topic
+    const sessionDateLabel = formSessionDate
+      ? new Date(formSessionDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      : '';
+    const upcomingSession = formSessionTopic.trim()
+      ? `${sessionDateLabel} - ${formSessionTopic.trim()}`
+      : sessionDateLabel || 'TBD';
+
     const newStudent: Student = {
-      id: `stud-${Date.now()}`,
+      id: studentId,
       name: formName,
+      email,
+      phone: formPhone.trim() || undefined,
+      gender: (formGender as 'Male' | 'Female' | 'Others') || undefined,
       age: Number(formAge),
       grade: formGrade,
       mentor: formMentor,
       guardian: formGuardian,
       progress: Number(formProgress),
       attendance: Number(formAttendance),
-      upcomingSession: formUpcomingSession,
+      upcomingSession,
       status: formStatus,
-      avatar: `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 9999999)}?w=150&auto=format&fit=crop&q=80`
+      avatar: avatarToSave,
+      organization: resolvedOrg
     };
 
+    const { error } = await supabase.from('students').insert([newStudent]);
+    if (error) {
+      console.error(error);
+      alert('Error enrolling student: ' + error.message);
+      return;
+    }
+
+    await logSecurityAudit(
+      'Enroll Student Successful',
+      'Info',
+      `Enrolled student "${formName}" (${email}) in organization "${resolvedOrg}" [ID: ${studentId}], assigned to Mentor "${formMentor}".`
+    );
+
     setData((prev) => [newStudent, ...prev]);
-    setToastMessage(`Student "${formName}" enrolled successfully!`);
+    setToastMessage(`Student "${formName}" enrolled — ID: ${studentId}`);
     setShowToast(true);
     setShowAddStudentModal(false);
 
     // Reset form states
     setFormName('');
     setFormAge(16);
+    setFormPhone('');
+    setFormEmail('');
+    setFormGender('');
     setFormGrade('11th Grade');
-    setFormMentor('Aadil Bhat');
+    setFormMentor(orgMentors.length > 0 ? orgMentors[0].name : '');
     setFormGuardian('');
     setFormStatus('Active');
-    setFormProgress(80);
-    setFormAttendance(92);
-    setFormUpcomingSession('July 10, 2026 - Derivative Integration');
+    setFormProgress(0);
+    setFormAttendance(0);
+    setFormSessionDate(todayFormatted());
+    setFormSessionTopic('');
+    setFormAvatarPreview('');
+    setFormAvatarUrl('');
+    if (avatarFileRef.current) avatarFileRef.current.value = '';
 
     setTimeout(() => {
       setShowToast(false);
@@ -114,7 +253,7 @@ export default function StudentsView({ defaultAddOpen = false }: StudentsViewPro
   };
 
   // Compile available grades dynamically
-  const allGrades = Array.from(new Set(initialStudents.map((s) => s.grade))).sort();
+  const allGrades = Array.from(new Set(data.map((s) => s.grade))).sort();
 
   const filteredStudents = data.filter((student) => {
     const matchesSearch = student.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -130,6 +269,28 @@ export default function StudentsView({ defaultAddOpen = false }: StudentsViewPro
     currentPage * itemsPerPage
   );
 
+  if (!canRead) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm text-center font-sans">
+        <AlertCircle className="w-12 h-12 text-rose-500 mb-4" />
+        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Security Access Violation</h3>
+        <p className="text-xs text-slate-400 mt-2 max-w-sm">
+          You do not hold the required authorization credentials to view the student cohorts.
+        </p>
+      </div>
+    );
+  }
+
+  // Calculate dynamic cohort aggregates
+  const totalCohortSize = data.length;
+  const avgAttendance = data.length > 0 
+    ? Math.round(data.reduce((sum, s) => sum + (s.attendance || 0), 0) / data.length) 
+    : 0;
+  const avgProgress = data.length > 0 
+    ? Math.round(data.reduce((sum, s) => sum + (s.progress || 0), 0) / data.length) 
+    : 0;
+  const onLeaveCount = data.filter(s => s.status === 'On Leave').length;
+
   return (
     <div className="space-y-6">
       
@@ -139,32 +300,34 @@ export default function StudentsView({ defaultAddOpen = false }: StudentsViewPro
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tight">Active Student Cohorts</h1>
           <p className="text-xs text-slate-400 dark:text-slate-400 mt-0.5">Track individual progress metrics, academic achievements, attendance trends, and assignments</p>
         </div>
-        <button
-          onClick={() => setShowAddStudentModal(true)}
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Student</span>
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowAddStudentModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Student</span>
+          </button>
+        )}
       </div>
 
       {/* Cohort Aggregates */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
         <div className="p-1">
           <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Cohort Size</span>
-          <span className="text-lg font-black text-slate-700 dark:text-white mt-1.5 block">52 Registered</span>
+          <span className="text-lg font-black text-slate-700 dark:text-white mt-1.5 block">{totalCohortSize} Registered</span>
         </div>
         <div className="p-1">
           <span className="text-[10px] text-slate-400 uppercase font-bold block">Average Attendance</span>
-          <span className="text-lg font-black text-teal-600 mt-1.5 block">91.4% Avg</span>
+          <span className="text-lg font-black text-teal-600 mt-1.5 block">{avgAttendance}% Avg</span>
         </div>
         <div className="p-1">
           <span className="text-[10px] text-slate-400 uppercase font-bold block">Academic Progress</span>
-          <span className="text-lg font-black text-blue-500 mt-1.5 block">84.2% Index</span>
+          <span className="text-lg font-black text-blue-500 mt-1.5 block">{avgProgress}% Index</span>
         </div>
         <div className="p-1">
           <span className="text-[10px] text-slate-400 uppercase font-bold block">On Leave Tutees</span>
-          <span className="text-lg font-black text-amber-500 mt-1.5 block">3 Students</span>
+          <span className="text-lg font-black text-amber-500 mt-1.5 block">{onLeaveCount} Student{onLeaveCount !== 1 ? 's' : ''}</span>
         </div>
       </div>
 
@@ -567,7 +730,62 @@ export default function StudentsView({ defaultAddOpen = false }: StudentsViewPro
 
                 {/* Form */}
                 <form onSubmit={handleAddStudentSubmit}>
-                  <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto text-xs">
+                  <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-xs">
+
+                    {/* ── Avatar Uploader ── */}
+                    <div className="flex items-center gap-4">
+                      <div className="relative group shrink-0">
+                        <div
+                          onClick={() => avatarFileRef.current?.click()}
+                          className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-colors group-hover:bg-blue-50/40 dark:group-hover:bg-blue-950/20"
+                        >
+                          {formAvatarPreview ? (
+                            <img src={formAvatarPreview} alt="Preview" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="flex flex-col items-center gap-1 text-slate-400">
+                              <Camera className="w-6 h-6" />
+                              <span className="text-[9px] font-bold">Photo</span>
+                            </div>
+                          )}
+                        </div>
+                        {formAvatarPreview && (
+                          <button
+                            type="button"
+                            onClick={() => { setFormAvatarPreview(''); setFormAvatarUrl(''); if (avatarFileRef.current) avatarFileRef.current.value = ''; }}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Student Photo</p>
+                        <button
+                          type="button"
+                          onClick={() => avatarFileRef.current?.click()}
+                          className="flex items-center gap-2 px-3 py-2 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-[10px] font-semibold bg-slate-50 dark:bg-slate-900 cursor-pointer w-full"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          {formAvatarPreview ? 'Change Photo' : 'Upload Photo'}
+                        </button>
+                        <p className="text-[9px] text-slate-400 mt-1.5">
+                          {formAvatarPreview ? (
+                            <span className="text-green-500 font-semibold">✓ Photo ready to save</span>
+                          ) : (
+                            'JPG, PNG or GIF · Max 5MB · Optional'
+                          )}
+                        </p>
+                        <input
+                          ref={avatarFileRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleAvatarChange}
+                        />
+                      </div>
+                    </div>
+
+                    {/* ── Name & Age ── */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Student Full Name</label>
@@ -591,6 +809,61 @@ export default function StudentsView({ defaultAddOpen = false }: StudentsViewPro
                           onChange={(e) => setFormAge(Number(e.target.value))}
                           className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
                         />
+                      </div>
+                    </div>
+
+                    {/* ── Phone & Email ── */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phone Number</label>
+                        <div className="relative">
+                          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                          <input
+                            type="tel"
+                            placeholder="e.g. +91 98765 43210"
+                            value={formPhone}
+                            onChange={(e) => setFormPhone(e.target.value)}
+                            className="w-full pl-8 pr-2.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Email Address</label>
+                        <div className="relative">
+                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                          <input
+                            type="email"
+                            placeholder={formName ? `${formName.toLowerCase().replace(/\s+/g, '.')}@...` : 'e.g. student@school.com'}
+                            value={formEmail}
+                            onChange={(e) => setFormEmail(e.target.value)}
+                            className="w-full pl-8 pr-2.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ── Gender ── */}
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-2">Gender</label>
+                      <div className="flex gap-2">
+                        {(['Male', 'Female', 'Others'] as const).map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={() => setFormGender(formGender === g ? '' : g)}
+                            className={`flex-1 py-2 rounded-xl text-[10px] font-bold border-2 transition-all cursor-pointer ${
+                              formGender === g
+                                ? g === 'Male'
+                                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400'
+                                  : g === 'Female'
+                                  ? 'border-pink-500 bg-pink-50 dark:bg-pink-950/30 text-pink-600 dark:text-pink-400'
+                                  : 'border-purple-500 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400'
+                                : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-400 hover:border-slate-300'
+                            }`}
+                          >
+                            {g === 'Male' ? '♂ Male' : g === 'Female' ? '♀ Female' : '⚧ Others'}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
@@ -630,10 +903,13 @@ export default function StudentsView({ defaultAddOpen = false }: StudentsViewPro
                           onChange={(e) => setFormMentor(e.target.value)}
                           className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
                         >
-                          <option value="Aadil Bhat">Aadil Bhat</option>
-                          <option value="Mehreen Shafi">Mehreen Shafi</option>
-                          <option value="Suhail Ahmad">Suhail Ahmad</option>
-                          <option value="Saba Jan">Saba Jan</option>
+                          {orgMentors.length === 0 ? (
+                            <option value="">No mentors in this organization</option>
+                          ) : (
+                            orgMentors.map((m) => (
+                              <option key={m.id} value={m.name}>{m.name}</option>
+                            ))
+                          )}
                         </select>
                       </div>
                       <div>
@@ -654,37 +930,70 @@ export default function StudentsView({ defaultAddOpen = false }: StudentsViewPro
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Initial Progress ({formProgress}%)</label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={formProgress}
-                          onChange={(e) => setFormProgress(Number(e.target.value))}
-                          className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600 mt-2"
-                        />
+                        <div className="mt-2">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={formProgress}
+                            onChange={(e) => setFormProgress(Number(e.target.value))}
+                            className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                          />
+                          <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-0.5">
+                            <span>0%</span><span className="font-bold text-blue-500">{formProgress}%</span><span>100%</span>
+                          </div>
+                        </div>
                       </div>
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Initial Attendance ({formAttendance}%)</label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={formAttendance}
-                          onChange={(e) => setFormAttendance(Number(e.target.value))}
-                          className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-teal-500 mt-2"
-                        />
+                        <div className="mt-2">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={formAttendance}
+                            onChange={(e) => setFormAttendance(Number(e.target.value))}
+                            className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
+                          />
+                          <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-0.5">
+                            <span>0%</span><span className="font-bold text-teal-500">{formAttendance}%</span><span>100%</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
+                    {/* Upcoming Session: Date + Topic split */}
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Upcoming Session Topic / Date</label>
-                      <input
-                        type="text"
-                        value={formUpcomingSession}
-                        onChange={(e) => setFormUpcomingSession(e.target.value)}
-                        placeholder="e.g. July 12, 2026 - Kinetic Physics Formulas"
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                      />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[9px] text-slate-400 font-semibold mb-1">Session Date</label>
+                          <input
+                            type="date"
+                            value={formSessionDate}
+                            onChange={(e) => setFormSessionDate(e.target.value)}
+                            className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] text-slate-400 font-semibold mb-1">Session Topic</label>
+                          <input
+                            type="text"
+                            value={formSessionTopic}
+                            onChange={(e) => setFormSessionTopic(e.target.value)}
+                            placeholder="e.g. Derivative Integration"
+                            className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+                      </div>
+                      {(formSessionDate || formSessionTopic) && (
+                        <p className="mt-1.5 text-[10px] text-slate-400 font-medium bg-slate-50 dark:bg-slate-900/40 px-2.5 py-1.5 rounded-lg border border-slate-100 dark:border-slate-700">
+                          Preview: <span className="text-slate-600 dark:text-slate-300 font-semibold">
+                            {formSessionDate ? new Date(formSessionDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
+                            {formSessionTopic ? ` - ${formSessionTopic}` : ''}
+                          </span>
+                        </p>
+                      )}
                     </div>
                   </div>
 

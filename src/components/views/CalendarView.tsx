@@ -21,20 +21,56 @@ import {
   PlusCircle,
   X,
   FileSpreadsheet,
-  FileText
+  FileText,
+  Check,
+  ChevronDown,
+  Search
 } from 'lucide-react';
 import { sessions as initialSessions } from '../../data/mockData';
 import { Session } from '../../types';
+import { supabase } from '../../lib/supabase';
+
+import { useAuth } from '../../lib/auth';
 
 interface CalendarViewProps {
   defaultBookOpen?: boolean;
+  selectedOrg?: string;
 }
 
-export default function CalendarView({ defaultBookOpen = false }: CalendarViewProps) {
+export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'All Organizations' }: CalendarViewProps) {
+  const { currentUser } = useAuth();
   const [view, setView] = useState<'weekly' | 'monthly'>('weekly');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
-  const [sessionsList, setSessionsList] = useState<Session[]>(initialSessions);
+  const [sessionsList, setSessionsList] = useState<Session[]>([]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    async function loadData() {
+      let query = supabase.from('sessions').select('*').order('date', { ascending: false });
+      
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+      if (orgToFilter) {
+        query = query.eq('organization', orgToFilter);
+      }
+      
+      if (currentUser.role === 'Mentor') {
+        query = query.eq('mentor', currentUser.name);
+      } else if (currentUser.role === 'Assistant' && currentUser.mentorName) {
+        query = query.eq('mentor', currentUser.mentorName);
+      } else if (currentUser.role === 'Student') {
+        query = query.eq('student', currentUser.name);
+      }
+
+      const { data: sess, error } = await query;
+      if (!error && sess) {
+        setSessionsList(sess);
+      }
+    }
+    loadData();
+  }, [currentUser, selectedOrg]);
 
   // Book Slot Modal State
   const [showBookModal, setShowBookModal] = useState<boolean>(false);
@@ -51,22 +87,94 @@ export default function CalendarView({ defaultBookOpen = false }: CalendarViewPr
   const [bookHomework, setBookHomework] = useState('');
   const [bookNotes, setBookNotes] = useState('');
 
+  // Lists for dropdown selection (organization bound)
+  const [students, setStudents] = useState<{ id: string; name: string; avatar: string }[]>([]);
+  const [mentors, setMentors] = useState<{ id: string; name: string; avatar: string }[]>([]);
+  
+  // Custom dropdown states
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
+  const [studentSearch, setStudentSearch] = useState('');
+  
+  const [showMentorDropdown, setShowMentorDropdown] = useState(false);
+  const [mentorSearch, setMentorSearch] = useState('');
+
+  const [showDurationDropdown, setShowDurationDropdown] = useState(false);
+
+  // Refs for click outside
+  const studentDropdownRef = React.useRef<HTMLDivElement>(null);
+  const mentorDropdownRef = React.useRef<HTMLDivElement>(null);
+  const durationDropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Click outside to close custom dropdowns
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (studentDropdownRef.current && !studentDropdownRef.current.contains(event.target as Node)) {
+        setShowStudentDropdown(false);
+      }
+      if (mentorDropdownRef.current && !mentorDropdownRef.current.contains(event.target as Node)) {
+        setShowMentorDropdown(false);
+      }
+      if (durationDropdownRef.current && !durationDropdownRef.current.contains(event.target as Node)) {
+        setShowDurationDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Fetch students and mentors matching current organization/view filters
+  useEffect(() => {
+    if (!currentUser) return;
+    async function loadStudentsAndMentors() {
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+
+      let stdQuery = supabase.from('students').select('id, name, avatar');
+      if (orgToFilter) {
+        stdQuery = stdQuery.eq('organization', orgToFilter);
+      }
+      const { data: stdData, error: stdError } = await stdQuery.order('name');
+      if (!stdError && stdData) {
+        setStudents(stdData);
+      }
+
+      let mntQuery = supabase.from('mentors').select('id, name, avatar');
+      if (orgToFilter) {
+        mntQuery = mntQuery.eq('organization', orgToFilter);
+      }
+      const { data: mntData, error: mntError } = await mntQuery.order('name');
+      if (!mntError && mntData) {
+        setMentors(mntData);
+      }
+    }
+    loadStudentsAndMentors();
+  }, [currentUser, selectedOrg]);
+
   useEffect(() => {
     if (defaultBookOpen) {
       setShowBookModal(true);
     }
   }, [defaultBookOpen]);
 
-  const handleBookSubmit = (e: React.FormEvent) => {
+  const handleBookSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bookStudent.trim() || !bookMentor.trim()) {
-      alert('Please fill in Student and Mentor name');
+    const studentNames = selectedStudents.join(', ');
+    if (!studentNames || !bookMentor.trim()) {
+      alert('Please select at least one Student and a Mentor');
       return;
     }
 
+    const resolvedOrg = currentUser?.role === 'Super Admin'
+      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      : currentUser?.organization || 'Bright Future Academy';
+
     const newSession: Session = {
       id: `sess-${Date.now().toString(16).slice(-4)}`,
-      student: bookStudent,
+      student: studentNames,
       mentor: bookMentor,
       date: bookDate,
       time: bookTime,
@@ -77,15 +185,24 @@ export default function CalendarView({ defaultBookOpen = false }: CalendarViewPr
       attendance: 'Present',
       homework: bookHomework || 'Complete specified textbook exercises.',
       notes: bookNotes || 'Prepared syllabus topic discussed during session.',
-      files: []
+      files: [],
+      organization: resolvedOrg
     };
 
+    const { error } = await supabase.from('sessions').insert([newSession]);
+    if (error) {
+      console.error(error);
+      alert('Error scheduling session: ' + error.message);
+      return;
+    }
+
     setSessionsList((prev) => [newSession, ...prev]);
-    setToastMessage(`New slot scheduled successfully for ${bookStudent}!`);
+    setToastMessage(`New slot scheduled successfully for ${studentNames}!`);
     setShowToast(true);
     setShowBookModal(false);
 
     // Reset Form
+    setSelectedStudents([]);
     setBookStudent('');
     setBookMentor('');
     setBookDate('2026-07-02');
@@ -104,6 +221,14 @@ export default function CalendarView({ defaultBookOpen = false }: CalendarViewPr
   const filteredSessions = sessionsList.filter((s) => {
     return selectedCategory === 'All' || s.category === selectedCategory;
   });
+
+  const filteredStudents = students.filter((std) =>
+    std.name.toLowerCase().includes(studentSearch.toLowerCase())
+  );
+
+  const filteredMentors = mentors.filter((mnt) =>
+    mnt.name.toLowerCase().includes(mentorSearch.toLowerCase())
+  );
 
   // Week days hardcoded sample
   const weekDays = [
@@ -446,27 +571,201 @@ export default function CalendarView({ defaultBookOpen = false }: CalendarViewPr
 
               <form onSubmit={handleBookSubmit} className="p-5 space-y-4 max-h-[460px] overflow-y-auto text-xs text-slate-600 dark:text-slate-300">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
+                  <div className="space-y-1 relative" ref={studentDropdownRef}>
                     <label className="text-[10px] uppercase font-bold text-slate-400">Student Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Zoya Khan"
-                      value={bookStudent}
-                      onChange={(e) => setBookStudent(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
+                    <div
+                      onClick={() => setShowStudentDropdown(!showStudentDropdown)}
+                      className="min-h-[38px] w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 cursor-pointer flex flex-wrap gap-1.5 items-center justify-between"
+                    >
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedStudents.length === 0 ? (
+                          <span className="text-slate-400 dark:text-slate-500">Select students...</span>
+                        ) : (
+                          selectedStudents.map((name) => (
+                            <span
+                              key={name}
+                              className="flex items-center gap-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-md text-[10px] font-bold border border-blue-100 dark:border-blue-900/30"
+                            >
+                              {name}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedStudents(selectedStudents.filter((s) => s !== name));
+                                }}
+                                className="hover:text-blue-800 dark:hover:text-blue-200 font-bold"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))
+                        )}
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showStudentDropdown ? 'rotate-180' : ''}`} />
+                    </div>
+
+                    {showStudentDropdown && (
+                      <div className="absolute left-0 right-0 mt-1.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl z-[60] overflow-hidden max-h-60 flex flex-col">
+                        {/* Search Input */}
+                        <div className="p-2 border-b border-slate-100 dark:border-slate-700 flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/30">
+                          <Search className="w-3.5 h-3.5 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Search students..."
+                            value={studentSearch}
+                            onChange={(e) => setStudentSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full bg-transparent text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                          />
+                          {studentSearch && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setStudentSearch('');
+                              }}
+                            >
+                              <X className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Checklist items */}
+                        <div className="overflow-y-auto py-1 divide-y divide-slate-50 dark:divide-slate-750">
+                          {filteredStudents.length === 0 ? (
+                            <div className="px-3 py-3 text-center text-slate-400 dark:text-slate-500 font-medium">
+                              No students found
+                            </div>
+                          ) : (
+                            filteredStudents.map((std) => {
+                              const isSelected = selectedStudents.includes(std.name);
+                              return (
+                                <div
+                                  key={std.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isSelected) {
+                                      setSelectedStudents(selectedStudents.filter((s) => s !== std.name));
+                                    } else {
+                                      setSelectedStudents([...selectedStudents, std.name]);
+                                    }
+                                  }}
+                                  className="flex items-center justify-between px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-750 cursor-pointer transition-colors"
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className="w-6 h-6 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-350 border border-slate-200 dark:border-slate-600 shrink-0">
+                                      {std.avatar ? (
+                                        <span className="text-xs">{std.avatar}</span>
+                                      ) : (
+                                        std.name.charAt(0)
+                                      )}
+                                    </div>
+                                    <span className="font-semibold text-slate-705 dark:text-slate-200 truncate">{std.name}</span>
+                                  </div>
+                                  <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0 ${
+                                    isSelected
+                                      ? 'bg-blue-600 border-blue-600 text-white'
+                                      : 'border-slate-300 dark:border-slate-600'
+                                  }`}>
+                                    {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="space-y-1">
+
+                  <div className="space-y-1 relative" ref={mentorDropdownRef}>
                     <label className="text-[10px] uppercase font-bold text-slate-400">Mentor Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Aadil Bhat"
-                      value={bookMentor}
-                      onChange={(e) => setBookMentor(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
+                    <div
+                      onClick={() => setShowMentorDropdown(!showMentorDropdown)}
+                      className="w-full px-3 py-1.5 min-h-[38px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 cursor-pointer flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {bookMentor ? (
+                          <>
+                            <div className="w-6 h-6 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-350 border border-slate-200 dark:border-slate-600 shrink-0">
+                              {mentors.find((m) => m.name === bookMentor)?.avatar ? (
+                                <span className="text-xs">{mentors.find((m) => m.name === bookMentor)?.avatar}</span>
+                              ) : (
+                                bookMentor.charAt(0)
+                              )}
+                            </div>
+                            <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">{bookMentor}</span>
+                          </>
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500">Select mentor...</span>
+                        )}
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showMentorDropdown ? 'rotate-180' : ''}`} />
+                    </div>
+
+                    {showMentorDropdown && (
+                      <div className="absolute left-0 right-0 mt-1.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl z-[60] overflow-hidden max-h-60 flex flex-col">
+                        {/* Search Input */}
+                        <div className="p-2 border-b border-slate-100 dark:border-slate-700 flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/30">
+                          <Search className="w-3.5 h-3.5 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Search mentors..."
+                            value={mentorSearch}
+                            onChange={(e) => setMentorSearch(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full bg-transparent text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                          />
+                          {mentorSearch && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMentorSearch('');
+                              }}
+                            >
+                              <X className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* List items */}
+                        <div className="overflow-y-auto py-1 divide-y divide-slate-50 dark:divide-slate-750">
+                          {filteredMentors.length === 0 ? (
+                            <div className="px-3 py-3 text-center text-slate-400 dark:text-slate-500 font-medium">
+                              No mentors found
+                            </div>
+                          ) : (
+                            filteredMentors.map((mnt) => {
+                              const isSelected = bookMentor === mnt.name;
+                              return (
+                                <div
+                                  key={mnt.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setBookMentor(mnt.name);
+                                    setShowMentorDropdown(false);
+                                  }}
+                                  className="flex items-center justify-between px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-750 cursor-pointer transition-colors"
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className="w-6 h-6 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-350 border border-slate-200 dark:border-slate-600 shrink-0">
+                                      {mnt.avatar ? (
+                                        <span className="text-xs">{mnt.avatar}</span>
+                                      ) : (
+                                        mnt.name.charAt(0)
+                                      )}
+                                    </div>
+                                    <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">{mnt.name}</span>
+                                  </div>
+                                  {isSelected && <Check className="w-4 h-4 text-blue-600 stroke-[3] shrink-0" />}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -508,16 +807,44 @@ export default function CalendarView({ defaultBookOpen = false }: CalendarViewPr
                       <option value="Exam Prep">Exam Prep</option>
                     </select>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 relative" ref={durationDropdownRef}>
                     <label className="text-[10px] uppercase font-bold text-slate-400">Duration</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. 60 mins"
-                      value={bookDuration}
-                      onChange={(e) => setBookDuration(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 60 mins"
+                        value={bookDuration}
+                        onChange={(e) => setBookDuration(e.target.value)}
+                        className="w-full pl-3 pr-10 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowDurationDropdown(!showDurationDropdown)}
+                        className="absolute right-0 top-0 bottom-0 px-2.5 flex items-center justify-center border-l border-slate-200 dark:border-slate-700 text-slate-400 hover:text-slate-650 dark:hover:text-slate-200"
+                      >
+                        <ChevronDown className={`w-4 h-4 transition-transform ${showDurationDropdown ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
+
+                    {showDurationDropdown && (
+                      <div className="absolute right-0 w-48 mt-1.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl z-[60] overflow-hidden py-1">
+                        {['15 mins', '30 mins', '45 mins', '60 mins', '90 mins', '120 mins'].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => {
+                              setBookDuration(preset);
+                              setShowDurationDropdown(false);
+                            }}
+                            className="w-full text-left px-4 py-2 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-205 transition-colors flex items-center justify-between"
+                          >
+                            <span>{preset}</span>
+                            {bookDuration === preset && <Check className="w-3.5 h-3.5 text-blue-600 stroke-[3]" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 

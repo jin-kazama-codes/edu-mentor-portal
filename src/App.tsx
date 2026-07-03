@@ -28,28 +28,45 @@ import ReportsView from './components/views/ReportsView';
 import PermissionsView from './components/views/PermissionsView';
 import SettingsView from './components/views/SettingsView';
 import ProfileView from './components/views/ProfileView';
+import { AuthProvider, useAuth } from './lib/auth';
 
-export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true); // Default to true so client presentation starts instantly on the dashboard!
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+function MainApp() {
+  const { currentUser, loading, login, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    return localStorage.getItem('activeTab') || 'dashboard';
+  });
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
-  const [selectedOrg, setSelectedOrg] = useState<string>('Valley Educational Trust');
+  const [selectedOrg, setSelectedOrg] = useState<string>('Bright Future Academy');
   const [quickActionTrigger, setQuickActionTrigger] = useState<{ action: string; timestamp: number } | null>(null);
+
+  // Dynamic organization mapping based on logged-in user context
+  useEffect(() => {
+    if (currentUser) {
+      if (currentUser.role !== 'Super Admin') {
+        setSelectedOrg(currentUser.organization);
+      } else if (!selectedOrg) {
+        setSelectedOrg('All Organizations');
+      }
+    }
+  }, [currentUser, selectedOrg]);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
+    localStorage.setItem('activeTab', tab);
     setQuickActionTrigger(null);
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    localStorage.removeItem('activeTab');
+    await logout();
   };
 
-  const handleLoginSuccess = (role: string, organization: string) => {
-    setSelectedOrg(organization);
-    setIsAuthenticated(true);
-    handleTabChange('dashboard');
+  const handleLoginSuccess = async (email: string, role: string, organization: string, passwordInput: string) => {
+    const success = await login(email, role as any, organization, passwordInput);
+    if (success) {
+      handleTabChange('dashboard');
+    }
   };
 
   // Render current view
@@ -62,26 +79,26 @@ export default function App() {
       case 'users':
         return <UsersView />;
       case 'mentors':
-        return <MentorsView />;
+        return <MentorsView selectedOrg={selectedOrg} />;
       case 'students':
-        return <StudentsView defaultAddOpen={quickActionTrigger?.action === 'add_student'} />;
+        return <StudentsView defaultAddOpen={quickActionTrigger?.action === 'add_student'} selectedOrg={selectedOrg} />;
       case 'assignment':
       case 'assignments':
-        return <AssignmentView />;
+        return <AssignmentView selectedOrg={selectedOrg} />;
       case 'calendar':
-        return <CalendarView defaultBookOpen={quickActionTrigger?.action === 'create_session'} />;
+        return <CalendarView defaultBookOpen={quickActionTrigger?.action === 'create_session'} selectedOrg={selectedOrg} />;
       case 'sessions':
-        return <SessionsView />;
+        return <SessionsView selectedOrg={selectedOrg} />;
       case 'evaluations':
-        return <EvaluationsView />;
+        return <EvaluationsView selectedOrg={selectedOrg} />;
       case 'library':
-        return <ContentLibraryView />;
+        return <ContentLibraryView selectedOrg={selectedOrg} />;
       case 'messaging':
-        return <MessagingView />;
+        return <MessagingView selectedOrg={selectedOrg} />;
       case 'payments':
-        return <PaymentsView />;
+        return <PaymentsView selectedOrg={selectedOrg} />;
       case 'reports':
-        return <ReportsView />;
+        return <ReportsView selectedOrg={selectedOrg} />;
       case 'permissions':
         return <PermissionsView />;
       case 'settings':
@@ -89,16 +106,21 @@ export default function App() {
       case 'profile':
         return <ProfileView />;
       default:
-        return <DashboardView onNavigate={(tab) => setActiveTab(tab)} selectedOrg={selectedOrg} />;
+        return <DashboardView onNavigate={(tab) => handleTabChange(tab)} selectedOrg={selectedOrg} />;
     }
   };
 
-  if (!isAuthenticated) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
-        <LoginView onLogin={handleLoginSuccess} />
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white font-sans">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
+        <p className="mt-4 text-xs text-slate-400">Enforcing database RLS filters...</p>
       </div>
     );
+  }
+
+  if (!currentUser) {
+    return <LoginView onLogin={handleLoginSuccess} />;
   }
 
   return (
@@ -159,5 +181,13 @@ export default function App() {
       </div>
 
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
   );
 }

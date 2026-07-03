@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   User,
@@ -22,10 +22,14 @@ import {
   Key,
   KeyRound
 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/auth';
 
 export default function ProfileView() {
-  const [name, setName] = useState('Suhail Ahmad');
-  const [email, setEmail] = useState('suhail.ahmad@edvalley.com');
+  const { currentUser, refreshUser } = useAuth();
+  const [name, setName] = useState(currentUser?.name || '');
+  const [email, setEmail] = useState(currentUser?.email || '');
+  const [avatar, setAvatar] = useState(currentUser?.avatar || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -34,7 +38,42 @@ export default function ProfileView() {
   const [showToast, setShowToast] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
 
-  const handleUpdateProfile = () => {
+  useEffect(() => {
+    if (currentUser) {
+      async function loadProfile() {
+        const { data, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', currentUser.email)
+          .maybeSingle();
+        if (!error && data) {
+          setName(data.name);
+          setEmail(data.email);
+          setAvatar(data.avatar || '');
+        } else {
+          setName(currentUser.name);
+          setEmail(currentUser.email);
+          setAvatar(currentUser.avatar || '');
+        }
+      }
+      loadProfile();
+    }
+  }, [currentUser]);
+
+  const handleUpdateProfile = async () => {
+    if (!currentUser) return;
+    const { error } = await supabase
+      .from('users')
+      .update({ name, email, avatar })
+      .eq('id', currentUser.id);
+    if (error) {
+      console.error(error);
+      alert('Error updating profile: ' + error.message);
+      return;
+    }
+
+    await refreshUser();
+
     setToastMsg('Profile details updated successfully!');
     setShowToast(true);
     setTimeout(() => {
@@ -99,14 +138,18 @@ export default function ProfileView() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-50 dark:border-slate-700 pb-3 gap-3">
               <div className="flex items-center gap-3">
                 <img
-                  src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80"
-                  alt="Super Admin Profile"
+                  src={avatar || "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80"}
+                  alt={currentUser?.name || "User Profile"}
                   referrerPolicy="no-referrer"
                   className="w-14 h-14 rounded-2xl object-cover ring-2 ring-slate-100 shadow-sm"
                 />
                 <div>
                   <h3 className="font-extrabold text-slate-800 dark:text-white text-xs">{name}</h3>
-                  <p className="text-[10px] text-slate-400">Primary Role: <strong className="text-rose-600 dark:text-rose-400">Super Admin</strong></p>
+                  <p className="text-[10px] text-slate-400">Primary Role: <strong className={
+                    currentUser?.role === 'Super Admin' ? 'text-rose-600 dark:text-rose-400' :
+                    currentUser?.role === 'Organization Admin' ? 'text-blue-600 dark:text-blue-400' :
+                    currentUser?.role === 'Mentor' ? 'text-teal-600 dark:text-teal-400' : 'text-slate-500 dark:text-slate-400'
+                  }>{currentUser?.role || 'Guest'}</strong></p>
                 </div>
               </div>
               <button
@@ -137,6 +180,17 @@ export default function ProfileView() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 focus:outline-none"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Avatar Image URL</label>
+                <input
+                  type="text"
+                  value={avatar}
+                  onChange={(e) => setAvatar(e.target.value)}
+                  placeholder="https://images.unsplash.com/..."
                   className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 focus:outline-none"
                 />
               </div>
