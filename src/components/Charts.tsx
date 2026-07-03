@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// Interfaces for our custom chart props
+// Interfaces for our custom chart propss ..
 interface DataPoint {
   [key: string]: string | number;
 }
@@ -229,8 +229,8 @@ export function CustomAreaLineChart({ data, xAxisKey, series }: CustomChartProps
             </div>
             {series.map((s) => {
               const val = Number(data[hoveredIndex][s.key] || 0);
-              const formattedVal = val >= 100000 
-                ? `₹${val.toLocaleString('en-IN')}` 
+              const formattedVal = val >= 100000
+                ? `₹${val.toLocaleString('en-IN')}`
                 : val.toLocaleString();
               return (
                 <div key={s.key} className="flex justify-between items-center py-0.5 gap-4">
