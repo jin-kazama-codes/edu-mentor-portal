@@ -274,18 +274,18 @@ for (let i = 0; i < 52; i++) {
 // 4. USERS (Multi-tenant users table)
 // ==========================================
 export const users: User[] = [
-  { id: 'u-1', name: 'Zoya Khan', email: 'zoya.khan@brightfuture.com', role: 'Student', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80', createdDate: '2025-09-01', lastLogin: '2026-07-02 08:32 AM' },
-  { id: 'u-2', name: 'Aadil Bhat', email: 'aadil.bhat@brightfuture.com', role: 'Mentor', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', createdDate: '2025-08-15', lastLogin: '2026-07-02 09:15 AM' },
-  { id: 'u-3', name: 'Mahin Bhat', email: 'mahinbhat@gmail.com', role: 'Super Admin', organization: 'All Organizations', status: 'Active', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80', createdDate: '2025-01-01', lastLogin: '2026-07-02 10:42 AM' },
-  { id: 'u-4', name: 'Mehreen Shafi', email: 'mehreen@smartminds.org', role: 'Mentor', organization: 'Smart Minds J&K', status: 'Active', avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80', createdDate: '2025-10-10', lastLogin: '2026-07-01 04:22 PM' },
-  { id: 'u-5', name: 'Tariq Al-Hamid', email: 'tariq.admin@brightfuture.com', role: 'Organization Admin', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80', createdDate: '2025-07-20', lastLogin: '2026-07-02 06:11 AM' },
-  { id: 'u-6', name: 'Sameer Rather', email: 'sameer.rather@gmail.com', role: 'Student', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', createdDate: '2025-09-02', lastLogin: '2026-07-01 11:30 AM' },
-  { id: 'u-7', name: 'Tabasum Ara', email: 'tabasum@smartminds.org', role: 'Student', organization: 'Smart Minds J&K', status: 'Active', avatar: 'https://images.unsplash.com/photo-1567532939604-b6b5b0db2604?w=150&auto=format&fit=crop&q=80', createdDate: '2025-10-15', lastLogin: '2026-07-02 07:18 AM' },
-  { id: 'u-8', name: 'Shabir Ganie', email: 'shabir@learnhub.com', role: 'Assistant', organization: 'LearnHub Institute', status: 'Active', avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150&auto=format&fit=crop&q=80', createdDate: '2025-11-05', lastLogin: '2026-07-01 02:40 PM' },
-  { id: 'u-9', name: 'Rayees Mir', email: 'rayees.mir@outlook.com', role: 'Student', organization: 'Smart Minds J&K', status: 'Pending', avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80', createdDate: '2026-06-28', lastLogin: 'Never' },
-  { id: 'u-10', name: 'Sarah Johnson', email: 'sarah@learnhub.com', role: 'Mentor', organization: 'LearnHub Institute', status: 'Active', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80', createdDate: '2025-05-15', lastLogin: '2026-07-02 09:30 AM' },
-  { id: 'u-11', name: 'Faisal Dar', email: 'faisal.dar@gmail.com', role: 'Student', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80', createdDate: '2025-09-01', lastLogin: '2026-07-01 05:10 PM' },
-  { id: 'u-12', name: 'Nuzhat Jan', email: 'nuzhat@aspire.in', role: 'Assistant', organization: 'Aspire Education', status: 'Inactive', avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80', createdDate: '2025-12-01', lastLogin: '2026-05-20 01:15 PM' }
+  { id: 'u-1', name: 'Zoya Khan', email: 'zoya.khan@brightfuture.com', role: 'Student', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80', createdDate: '2025-09-01', lastLogin: '2026-07-02 08:32 AM', number: '+91 98765 00001', gender: 'Female', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-2', name: 'Aadil Bhat', email: 'aadil.bhat@brightfuture.com', role: 'Mentor', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', createdDate: '2025-08-15', lastLogin: '2026-07-02 09:15 AM', number: '+91 98765 00002', gender: 'Male', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-3', name: 'Mahin Bhat', email: 'mahinbhat@gmail.com', role: 'Super Admin', organization: 'All Organizations', status: 'Active', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80', createdDate: '2025-01-01', lastLogin: '2026-07-02 10:42 AM', number: '+91 98765 00003', gender: 'Male', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-4', name: 'Mehreen Shafi', email: 'mehreen@smartminds.org', role: 'Mentor', organization: 'Smart Minds J&K', status: 'Active', avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80', createdDate: '2025-10-10', lastLogin: '2026-07-01 04:22 PM', number: '+91 98765 00004', gender: 'Female', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-5', name: 'Tariq Al-Hamid', email: 'tariq.admin@brightfuture.com', role: 'Organization Admin', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80', createdDate: '2025-07-20', lastLogin: '2026-07-02 06:11 AM', number: '+91 98765 00005', gender: 'Male', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-6', name: 'Sameer Rather', email: 'sameer.rather@gmail.com', role: 'Student', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', createdDate: '2025-09-02', lastLogin: '2026-07-01 11:30 AM', number: '+91 98765 00006', gender: 'Male', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-7', name: 'Tabasum Ara', email: 'tabasum@smartminds.org', role: 'Student', organization: 'Smart Minds J&K', status: 'Active', avatar: 'https://images.unsplash.com/photo-1567532939604-b6b5b0db2604?w=150&auto=format&fit=crop&q=80', createdDate: '2025-10-15', lastLogin: '2026-07-02 07:18 AM', number: '+91 98765 00007', gender: 'Female', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-8', name: 'Shabir Ganie', email: 'shabir@learnhub.com', role: 'Assistant', organization: 'LearnHub Institute', status: 'Active', avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=150&auto=format&fit=crop&q=80', createdDate: '2025-11-05', lastLogin: '2026-07-01 02:40 PM', number: '+91 98765 00008', gender: 'Male', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-9', name: 'Rayees Mir', email: 'rayees.mir@outlook.com', role: 'Student', organization: 'Smart Minds J&K', status: 'Pending', avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80', createdDate: '2026-06-28', lastLogin: 'Never', number: '+91 98765 00009', gender: 'Male', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-10', name: 'Sarah Johnson', email: 'sarah@learnhub.com', role: 'Mentor', organization: 'LearnHub Institute', status: 'Active', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80', createdDate: '2025-05-15', lastLogin: '2026-07-02 09:30 AM', number: '+91 98765 00010', gender: 'Female', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-11', name: 'Faisal Dar', email: 'faisal.dar@gmail.com', role: 'Student', organization: 'Bright Future Academy', status: 'Active', avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80', createdDate: '2025-09-01', lastLogin: '2026-07-01 05:10 PM', number: '+91 98765 00011', gender: 'Male', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' },
+  { id: 'u-12', name: 'Nuzhat Jan', email: 'nuzhat@aspire.in', role: 'Assistant', organization: 'Aspire Education', status: 'Inactive', avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80', createdDate: '2025-12-01', lastLogin: '2026-05-20 01:15 PM', number: '+91 98765 00012', gender: 'Female', password: 'a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea' }
 ];
 
 // ==========================================
@@ -615,6 +615,46 @@ export const permissionsData: PermissionMatrix[] = [
       'Assistant': { create: false, read: false, update: false, delete: false, approve: false, export: false, assign: false },
       'Student': { create: false, read: true, update: false, delete: false, approve: false, export: false, assign: false }
     }
+  },
+  {
+    module: 'User and Role Management',
+    roles: {
+      'Super Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
+      'Organization Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
+      'Mentor': { create: false, read: true, update: false, delete: false, approve: false, export: false, assign: false },
+      'Assistant': { create: false, read: true, update: false, delete: false, approve: false, export: false, assign: false },
+      'Student': { create: false, read: false, update: false, delete: false, approve: false, export: false, assign: false }
+    }
+  },
+  {
+    module: 'Session Scheduling',
+    roles: {
+      'Super Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
+      'Organization Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
+      'Mentor': { create: true, read: true, update: true, delete: false, approve: true, export: false, assign: false },
+      'Assistant': { create: true, read: true, update: true, delete: false, approve: false, export: false, assign: false },
+      'Student': { create: false, read: true, update: false, delete: false, approve: false, export: false, assign: false }
+    }
+  },
+  {
+    module: 'Messaging',
+    roles: {
+      'Super Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
+      'Organization Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
+      'Mentor': { create: true, read: true, update: true, delete: false, approve: true, export: false, assign: false },
+      'Assistant': { create: true, read: true, update: true, delete: false, approve: false, export: false, assign: false },
+      'Student': { create: true, read: true, update: false, delete: false, approve: false, export: false, assign: false }
+    }
+  },
+  {
+    module: 'Content Library',
+    roles: {
+      'Super Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
+      'Organization Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
+      'Mentor': { create: true, read: true, update: true, delete: false, approve: true, export: false, assign: false },
+      'Assistant': { create: false, read: true, update: false, delete: false, approve: false, export: false, assign: false },
+      'Student': { create: false, read: true, update: false, delete: false, approve: false, export: false, assign: false }
+    }
   }
 ];
 
@@ -622,14 +662,27 @@ export const permissionsData: PermissionMatrix[] = [
 // 10. CONTENT LIBRARY RESOURCES
 // ==========================================
 export const contentResources = [
-  { id: 'c-res-1', title: 'Calculus Made Simple: Derivatives', type: 'Video', duration: '24 mins', category: 'Mathematics', author: 'Aadil Bhat', rating: 4.9, size: '254 MB', thumbnail: 'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=300&auto=format&fit=crop&q=80', bookmarked: true },
-  { id: 'c-res-2', title: 'Organic Chemistry Reactions Cheat-Sheet', type: 'PDF', category: 'Chemistry', author: 'Mehreen Shafi', rating: 4.8, size: '4.8 MB', thumbnail: 'https://images.unsplash.com/photo-1532187643603-ba119ca4109e?w=300&auto=format&fit=crop&q=80', bookmarked: false },
-  { id: 'c-res-3', title: 'Python Basics Workbook', type: 'Worksheet', category: 'Computer Science', author: 'Suhail Ahmad', rating: 4.95, size: '12.4 MB', thumbnail: 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=300&auto=format&fit=crop&q=80', bookmarked: true },
-  { id: 'c-res-4', title: 'World History: French Revolution Notes', type: 'PDF', category: 'History', author: 'Emily Carter', rating: 4.5, size: '2.1 MB', thumbnail: 'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=300&auto=format&fit=crop&q=80', bookmarked: false },
-  { id: 'c-res-5', title: 'Grammar and Creative Writing Rubrics', type: 'Worksheet', category: 'English', author: 'Sarah Johnson', rating: 4.7, size: '3.5 MB', thumbnail: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=300&auto=format&fit=crop&q=80', bookmarked: true },
-  { id: 'c-res-6', title: 'Basics of Microeconomics Lecture', type: 'Video', duration: '45 mins', category: 'Economics', author: 'Yasir Wani', rating: 4.6, size: '412 MB', thumbnail: 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=300&auto=format&fit=crop&q=80', bookmarked: false },
-  { id: 'c-res-7', title: 'Trigonometry Assignment Questions', type: 'Assignment', category: 'Mathematics', author: 'Bisma Yusuf', rating: 4.8, size: '1.9 MB', thumbnail: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=300&auto=format&fit=crop&q=80', bookmarked: false },
-  { id: 'c-res-8', title: 'Genetics & Cell Division Practice Paper', type: 'Assignment', category: 'Biology', author: 'Saima Akhter', rating: 4.75, size: '1.2 MB', thumbnail: 'https://images.unsplash.com/photo-1530026405186-ed1ea06073e5?w=300&auto=format&fit=crop&q=80', bookmarked: true }
+  // ── Global resources (visible to all orgs) ──
+  { id: 'c-res-1', title: 'Calculus Made Simple: Derivatives', type: 'Video', duration: '24 mins', category: 'Mathematics', author: 'Aadil Bhat', rating: 4.9, size: '254 MB', thumbnail: 'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=300&auto=format&fit=crop&q=80', bookmarked: true, organization: 'Global' },
+  { id: 'c-res-2', title: 'Organic Chemistry Reactions Cheat-Sheet', type: 'PDF', category: 'Chemistry', author: 'Mehreen Shafi', rating: 4.8, size: '4.8 MB', thumbnail: 'https://images.unsplash.com/photo-1532187643603-ba119ca4109e?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'Global' },
+  { id: 'c-res-3', title: 'Python Basics Workbook', type: 'Worksheet', category: 'Computer Science', author: 'Suhail Ahmad', rating: 4.95, size: '12.4 MB', thumbnail: 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=300&auto=format&fit=crop&q=80', bookmarked: true, organization: 'Global' },
+  { id: 'c-res-4', title: 'World History: French Revolution Notes', type: 'PDF', category: 'History', author: 'Emily Carter', rating: 4.5, size: '2.1 MB', thumbnail: 'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'Global' },
+  { id: 'c-res-5', title: 'Grammar and Creative Writing Rubrics', type: 'Worksheet', category: 'English', author: 'Sarah Johnson', rating: 4.7, size: '3.5 MB', thumbnail: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=300&auto=format&fit=crop&q=80', bookmarked: true, organization: 'Global' },
+  { id: 'c-res-6', title: 'Basics of Microeconomics Lecture', type: 'Video', duration: '45 mins', category: 'Economics', author: 'Yasir Wani', rating: 4.6, size: '412 MB', thumbnail: 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'Global' },
+  { id: 'c-res-7', title: 'Trigonometry Assignment Questions', type: 'Assignment', category: 'Mathematics', author: 'Bisma Yusuf', rating: 4.8, size: '1.9 MB', thumbnail: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'Global' },
+  { id: 'c-res-8', title: 'Genetics & Cell Division Practice Paper', type: 'Assignment', category: 'Biology', author: 'Saima Akhter', rating: 4.75, size: '1.2 MB', thumbnail: 'https://images.unsplash.com/photo-1530026405186-ed1ea06073e5?w=300&auto=format&fit=crop&q=80', bookmarked: true, organization: 'Global' },
+  // ── Bright Future Academy ──
+  { id: 'c-res-9',  title: 'JEE Advanced Physics Problem Set', type: 'Assignment', category: 'Physics', author: 'Aadil Bhat', rating: 4.85, size: '2.8 MB', thumbnail: 'https://images.unsplash.com/photo-1636466497217-26a8cbeaf0aa?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'Bright Future Academy' },
+  { id: 'c-res-10', title: 'CBSE Board Exam Preparation Guide', type: 'PDF', category: 'General', author: 'Aadil Bhat', rating: 4.7, size: '8.3 MB', thumbnail: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=300&auto=format&fit=crop&q=80', bookmarked: true, organization: 'Bright Future Academy' },
+  // ── Smart Minds J&K ──
+  { id: 'c-res-11', title: 'Kashmir History & Culture Study Notes', type: 'PDF', category: 'History', author: 'Mehreen Shafi', rating: 4.6, size: '5.1 MB', thumbnail: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'Smart Minds J&K' },
+  { id: 'c-res-12', title: 'Advanced Biology: NEET Practice Papers', type: 'Assignment', category: 'Biology', author: 'Mehreen Shafi', rating: 4.9, size: '3.2 MB', thumbnail: 'https://images.unsplash.com/photo-1530026405186-ed1ea06073e5?w=300&auto=format&fit=crop&q=80', bookmarked: true, organization: 'Smart Minds J&K' },
+  // ── LearnHub Institute ──
+  { id: 'c-res-13', title: 'Creative Writing Workshop Templates', type: 'Worksheet', category: 'English', author: 'Sarah Johnson', rating: 4.8, size: '2.4 MB', thumbnail: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'LearnHub Institute' },
+  { id: 'c-res-14', title: 'Financial Literacy for Teens', type: 'Video', duration: '32 mins', category: 'Economics', author: 'David Wilson', rating: 4.65, size: '380 MB', thumbnail: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'LearnHub Institute' },
+  // ── Aspire Education ──
+  { id: 'c-res-15', title: 'Vedic Mathematics Speed Techniques', type: 'Video', duration: '38 mins', category: 'Mathematics', author: 'Shahnawaz Malik', rating: 4.92, size: '290 MB', thumbnail: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=300&auto=format&fit=crop&q=80', bookmarked: true, organization: 'Aspire Education' },
+  { id: 'c-res-16', title: 'Data Structures & Algorithms Notes', type: 'PDF', category: 'Computer Science', author: 'Suhail Ahmad', rating: 4.88, size: '6.7 MB', thumbnail: 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=300&auto=format&fit=crop&q=80', bookmarked: false, organization: 'Aspire Education' },
 ];
 
 // ==========================================
@@ -670,3 +723,39 @@ export const reportsAnalytics = {
     { month: 'Jun', Revenue: 1284000, Subscriptions: 520000, Sessions: 764000 }
   ]
 };
+
+// Post-process mock data to inject organization and email properties
+mentors.forEach(m => {
+  m.organization = m.email.includes('brightfuture') ? 'Bright Future Academy' :
+                   m.email.includes('learnhub') ? 'LearnHub Institute' :
+                   m.email.includes('smartminds') ? 'Smart Minds J&K' :
+                   m.email.includes('aspire') ? 'Aspire Education' : 'Valley Crest Academics';
+});
+
+students.forEach(s => {
+  const mentorObj = mentors.find(m => m.name === s.mentor) || mentors[0];
+  s.organization = mentorObj.organization;
+  const emailDomain = s.organization === 'Bright Future Academy' ? 'brightfuture.com' :
+                      s.organization === 'LearnHub Institute' ? 'learnhub.com' :
+                      s.organization === 'Smart Minds J&K' ? 'smartminds.org' :
+                      s.organization === 'Aspire Education' ? 'aspire.in' : 'valleycrest.edu';
+  s.email = `${s.name.split(' ')[0].toLowerCase()}.${s.name.split(' ')[1]?.toLowerCase() || 'student'}@${emailDomain}`;
+});
+
+sessions.forEach(sess => {
+  const studentObj = students.find(s => s.name === sess.student) || students[0];
+  const mentorObj = mentors.find(m => m.name === studentObj.mentor) || mentors[0];
+  sess.mentor = mentorObj.name;
+  sess.organization = studentObj.organization;
+});
+
+users.forEach(u => {
+  if (u.role === 'Assistant') {
+    u.mentor_id = u.id === 'u-8' ? 'u-10' : 'm-4'; // Shabir maps to Sarah Johnson (u-10), Nuzhat maps to Suhail Ahmad (m-4)
+  }
+});
+
+permissionsData.forEach(p => {
+  p.organization = 'Global';
+});
+

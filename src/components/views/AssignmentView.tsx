@@ -30,37 +30,45 @@ interface UnassignedStudent {
   avatar: string;
 }
 
-export default function AssignmentView() {
-  const [unassigned, setUnassigned] = useState<UnassignedStudent[]>(() => {
-    const saved = localStorage.getItem('portal_assignment_unassigned');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'unas-1', name: 'Rayees Mir', subjectNeed: 'Chemistry', grade: '12th Grade', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80' },
-      { id: 'unas-2', name: 'Zoya Khan', subjectNeed: 'Mathematics', grade: '11th Grade', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80' },
-      { id: 'unas-3', name: 'Sameer Rather', subjectNeed: 'Physics', grade: '12th Grade', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' },
-      { id: 'unas-4', name: 'Tabasum Ara', subjectNeed: 'English Literature', grade: '11th Grade', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' },
-      { id: 'unas-5', name: 'Faisal Dar', subjectNeed: 'Urdu Literature', grade: '12th Grade', avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80' }
-    ];
-  });
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/auth';
 
-  const [mentors, setMentors] = useState(() => {
-    const saved = localStorage.getItem('portal_assignment_mentors');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'm-1', name: 'Aadil Bhat', specialty: 'Physics', assignedCount: 3, maxCapacity: 5, avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', activeStudents: ['Iqra Jan', 'Zahid Bhat', 'Basit Lone'] },
-      { id: 'm-3', name: 'Mehreen Shafi', specialty: 'Chemistry', assignedCount: 4, maxCapacity: 5, avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80', activeStudents: ['Bisma Yusuf', 'Zahid Mir', 'Yasmeen Dar', 'Arsalan Bhat'] },
-      { id: 'm-4', name: 'Suhail Ahmad', specialty: 'Computer Science', assignedCount: 5, maxCapacity: 5, avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', activeStudents: ['Yawar Lone', 'Saima Akhter', 'Moomin Shah', 'Kabir Mehta', 'Deepak Sen'] },
-      { id: 'm-8', name: 'Tabasum Ara', specialty: 'Urdu Literature', assignedCount: 1, maxCapacity: 5, avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80', activeStudents: ['Mehak Jan'] }
-    ];
-  });
+interface AssignmentViewProps {
+  selectedOrg?: string;
+}
+
+export default function AssignmentView({ selectedOrg = 'All Organizations' }: AssignmentViewProps) {
+  const { currentUser } = useAuth();
+  const [unassigned, setUnassigned] = useState<UnassignedStudent[]>([]);
+  const [mentors, setMentors] = useState<any[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('portal_assignment_unassigned', JSON.stringify(unassigned));
-  }, [unassigned]);
+    if (!currentUser) return;
+    async function loadData() {
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
 
-  useEffect(() => {
-    localStorage.setItem('portal_assignment_mentors', JSON.stringify(mentors));
-  }, [mentors]);
+      let unasQuery = supabase.from('unassigned_students').select('*');
+      let mentsQuery = supabase.from('assignment_mentors').select('*').order('name');
+
+      if (orgToFilter) {
+        unasQuery = unasQuery.eq('organization', orgToFilter);
+        mentsQuery = mentsQuery.eq('organization', orgToFilter);
+      }
+
+      const { data: unas, error: unasErr } = await unasQuery;
+      if (!unasErr && unas) {
+        setUnassigned(unas);
+      }
+
+      const { data: ments, error: mentsErr } = await mentsQuery;
+      if (!mentsErr && ments) {
+        setMentors(ments);
+      }
+    }
+    loadData();
+  }, [currentUser, selectedOrg]);
 
   const [selectedStudent, setSelectedStudent] = useState<UnassignedStudent | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -93,22 +101,45 @@ export default function AssignmentView() {
     executeAssignment(mentorId);
   };
 
-  const executeAssignment = (mentorId: string) => {
+  const executeAssignment = async (mentorId: string) => {
     if (!selectedStudent) return;
     
     const mentor = mentors.find((m) => m.id === mentorId)!;
 
-    // Update unassigned students
+    const { error: delErr } = await supabase
+      .from('unassigned_students')
+      .delete()
+      .eq('id', selectedStudent.id);
+
+    if (delErr) {
+      console.error(delErr);
+      alert('Error updating unassigned students: ' + delErr.message);
+      return;
+    }
+
+    const updatedMentor = {
+      assignedCount: mentor.assignedCount + 1,
+      activeStudents: [...mentor.activeStudents, selectedStudent.name]
+    };
+
+    const { error: updErr } = await supabase
+      .from('assignment_mentors')
+      .update(updatedMentor)
+      .eq('id', mentorId);
+
+    if (updErr) {
+      console.error(updErr);
+      alert('Error updating mentor assignment: ' + updErr.message);
+      return;
+    }
+
     setUnassigned((prev) => prev.filter((s) => s.id !== selectedStudent.id));
-    
-    // Update mentors capacity lists
     setMentors((prev) =>
       prev.map((m) => {
         if (m.id === mentorId) {
           return {
             ...m,
-            assignedCount: m.assignedCount + 1,
-            activeStudents: [...m.activeStudents, selectedStudent.name]
+            ...updatedMentor
           };
         }
         return m;

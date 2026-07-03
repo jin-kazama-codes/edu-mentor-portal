@@ -22,11 +22,40 @@ import {
   Lock
 } from 'lucide-react';
 import { CustomAreaLineChart } from '../Charts';
-import { reportsAnalytics } from '../../data/mockData';
+import { reportsAnalytics as fallbackAnalytics } from '../../data/mockData';
+import { supabase } from '../../lib/supabase';
+import { useEffect } from 'react';
+import { useAuth } from '../../lib/auth';
 
-export default function ReportsView() {
+interface ReportsViewProps {
+  selectedOrg?: string;
+}
+
+export default function ReportsView({ selectedOrg = 'All Organizations' }: ReportsViewProps) {
+  const { currentUser } = useAuth();
   const [range, setRange] = useState<'30days' | 'ytd' | 'all'>('30days');
   const [showToast, setShowToast] = useState(false);
+  const [studentGrowth, setStudentGrowth] = useState<any[]>(fallbackAnalytics.studentGrowth);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    async function loadData() {
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+
+      let query = supabase.from('report_student_growth').select('*');
+      if (orgToFilter) {
+        query = query.eq('organization', orgToFilter);
+      }
+      
+      const { data, error } = await query.order('id', { ascending: true });
+      if (!error && data) {
+        setStudentGrowth(data);
+      }
+    }
+    loadData();
+  }, [currentUser, selectedOrg]);
 
   const handleExportData = () => {
     setShowToast(true);
@@ -114,7 +143,7 @@ export default function ReportsView() {
           </div>
           {/* Custom area engagement chart loaded */}
           <CustomAreaLineChart
-            data={reportsAnalytics.studentGrowth}
+            data={studentGrowth}
             xAxisKey="month"
             series={[
               { key: 'ActiveStudents', color: '#2563EB', label: 'Active Students' },

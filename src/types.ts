@@ -11,10 +11,15 @@ export interface User {
   email: string;
   role: UserRole;
   organization: string;
+  mentor_id?: string;
+  mentorName?: string;
   status: 'Active' | 'Inactive' | 'Pending';
   avatar: string;
   createdDate: string;
   lastLogin: string;
+  number?: string;
+  gender?: 'Male' | 'Female' | 'Others';
+  password?: string;
 }
 
 export interface Organization {
@@ -40,11 +45,15 @@ export interface Mentor {
   upcomingSessions: number;
   performance: 'Outstanding' | 'Exceeding' | 'Meeting' | 'Needs Review';
   avatar: string;
+  organization: string;
 }
 
 export interface Student {
   id: string;
   name: string;
+  email: string;
+  phone?: string;
+  gender?: 'Male' | 'Female' | 'Others';
   age: number;
   grade: string;
   mentor: string; // Mentor Name
@@ -54,6 +63,7 @@ export interface Student {
   upcomingSession: string; // Date or description
   status: 'Active' | 'On Leave' | 'Graduated' | 'Suspended';
   avatar: string;
+  organization: string;
 }
 
 export interface Session {
@@ -73,6 +83,7 @@ export interface Session {
   files: string[];
   status: 'Completed' | 'Upcoming' | 'Cancelled';
   category: 'Academic' | 'Behavioral' | 'Doubt Clearing' | 'Exam Prep' | 'Special Need';
+  organization: string;
 }
 
 export interface Message {
@@ -128,6 +139,7 @@ export interface AuditLog {
 
 export interface PermissionMatrix {
   module: string;
+  organization?: string;
   roles: {
     [key in UserRole]: {
       create: boolean;

@@ -27,16 +27,45 @@ import {
 } from 'lucide-react';
 import { users as initialUsers } from '../../data/mockData';
 import { User, UserRole } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/auth';
+import { hashPassword } from '../../utils/crypto';
 
 export default function UsersView() {
-  const [data, setData] = useState<User[]>(() => {
-    const saved = localStorage.getItem('portal_users');
-    return saved ? JSON.parse(saved) : initialUsers;
-  });
+  const { currentUser, hasPermission, logSecurityAudit } = useAuth();
+  const [data, setData] = useState<User[]>([]);
+
+  const [orgsList, setOrgsList] = useState<string[]>([]);
+
+  const canRead = hasPermission('User and Role Management', 'read');
+  const canCreate = hasPermission('User and Role Management', 'create');
+  const canUpdate = hasPermission('User and Role Management', 'update');
+  const canDelete = hasPermission('User and Role Management', 'delete');
 
   useEffect(() => {
-    localStorage.setItem('portal_users', JSON.stringify(data));
-  }, [data]);
+    if (!currentUser || !canRead) return;
+
+    async function loadData() {
+      let query = supabase.from('users').select('*').order('created_at', { ascending: false });
+      if (currentUser.role !== 'Super Admin') {
+        query = query.eq('organization', currentUser.organization);
+      }
+      const { data: usrs, error } = await query;
+      if (!error && usrs) {
+        setData(usrs);
+      }
+    }
+    async function loadOrgs() {
+      const { data, error } = await supabase.from('organizations').select('name');
+      let fetchedOrgs = !error && data ? data.map((o: any) => o.name) : [];
+      if (currentUser && currentUser.role !== 'Super Admin' && !fetchedOrgs.includes(currentUser.organization)) {
+        fetchedOrgs.push(currentUser.organization);
+      }
+      setOrgsList(fetchedOrgs);
+    }
+    loadData();
+    loadOrgs();
+  }, [currentUser, canRead]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('All');
@@ -55,8 +84,19 @@ export default function UsersView() {
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<UserRole>('Student');
-  const [inviteOrg, setInviteOrg] = useState('EdValley Srinagar');
+  const [inviteOrg, setInviteOrg] = useState('');
   const [inviteStatus, setInviteStatus] = useState<User['status']>('Active');
+  const [inviteAvatarFile, setInviteAvatarFile] = useState<File | null>(null);
+  const [inviteAvatarPreview, setInviteAvatarPreview] = useState<string>('');
+  const [inviteNumber, setInviteNumber] = useState('');
+  const [inviteGender, setInviteGender] = useState<'Male' | 'Female' | 'Others'>('Male');
+  const [invitePassword, setInvitePassword] = useState('');
+
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'Super Admin') {
+      setInviteOrg(currentUser.organization);
+    }
+  }, [currentUser]);
 
   // Form states for Edit User
   const [editName, setEditName] = useState('');
@@ -64,6 +104,29 @@ export default function UsersView() {
   const [editRole, setEditRole] = useState<UserRole>('Student');
   const [editOrg, setEditOrg] = useState('');
   const [editStatus, setEditStatus] = useState<User['status']>('Active');
+  const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
+  const [editAvatarPreview, setEditAvatarPreview] = useState<string>('');
+  const [editNumber, setEditNumber] = useState('');
+  const [editGender, setEditGender] = useState<'Male' | 'Female' | 'Others'>('Male');
+  const [editPassword, setEditPassword] = useState('');
+
+  const handleOpenInviteModal = () => {
+    setInviteName('');
+    setInviteEmail('');
+    setInviteRole('Student');
+    setInviteStatus('Active');
+    setInviteAvatarFile(null);
+    setInviteAvatarPreview('');
+    setInviteNumber('');
+    setInviteGender('Male');
+    setInvitePassword('');
+    if (currentUser && currentUser.role !== 'Super Admin') {
+      setInviteOrg(currentUser.organization);
+    } else {
+      setInviteOrg('');
+    }
+    setShowInviteModal(true);
+  };
 
   const handleOpenEditModal = (user: User) => {
     setSelectedUserForEdit(user);
@@ -72,51 +135,270 @@ export default function UsersView() {
     setEditRole(user.role);
     setEditOrg(user.organization);
     setEditStatus(user.status);
+    setEditAvatarPreview(user.avatar || '');
+    setEditAvatarFile(null);
+    setEditNumber(user.number || '');
+    setEditGender(user.gender || 'Male');
+    setEditPassword('');
   };
 
-  const handleInviteSubmit = (e: React.FormEvent) => {
+  // Helper to convert File to Base64 data URL
+  const toBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+
+  const handleInviteAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert('File size exceeds the 2MB limit. Please select a smaller image.');
+        return;
+      }
+      setInviteAvatarFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setInviteAvatarPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveInviteAvatar = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setInviteAvatarFile(null);
+    setInviteAvatarPreview('');
+  };
+
+  const handleEditAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert('File size exceeds the 2MB limit. Please select a smaller image.');
+        return;
+      }
+      setEditAvatarFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditAvatarPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveEditAvatar = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditAvatarFile(null);
+    setEditAvatarPreview('');
+  };
+
+  const handleCloseInviteModal = () => {
+    setShowInviteModal(false);
+    setInviteName('');
+    setInviteEmail('');
+    setInviteRole('Student');
+    setInviteOrg(currentUser?.role !== 'Super Admin' ? (currentUser?.organization || '') : '');
+    setInviteAvatarFile(null);
+    setInviteAvatarPreview('');
+    setInviteNumber('');
+    setInviteGender('Male');
+    setInvitePassword('');
+  };
+
+  const handleInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteName.trim() || !inviteEmail.trim()) return;
+    if (!inviteName.trim() || !inviteEmail.trim() || !currentUser) return;
+    if (!canCreate) {
+      alert('Action Denied: You do not have permissions to invite new users.');
+      return;
+    }
+
+    const resolvedOrg = currentUser.role === 'Super Admin' ? inviteOrg : currentUser.organization;
+    let uploadedAvatarUrl = `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`;
+
+    if (inviteAvatarFile) {
+      try {
+        const fileExt = inviteAvatarFile.name.split('.').pop();
+        const fileName = `avatar-${Date.now()}.${fileExt}`;
+        const filePath = fileName;
+
+        try {
+          await supabase.storage.createBucket('avatars', { public: true });
+        } catch (bucketErr) {
+          console.log('Bucket check/creation failed:', bucketErr);
+        }
+
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, inviteAvatarFile, {
+            cacheControl: '3600',
+            upsert: true
+          });
+
+        if (uploadErr) {
+          console.warn('Supabase storage upload error, falling back to Base64:', uploadErr.message);
+          uploadedAvatarUrl = await toBase64(inviteAvatarFile);
+        } else if (uploadData) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(filePath);
+          uploadedAvatarUrl = publicUrl;
+        }
+      } catch (err: any) {
+        console.error('Storage error, falling back to Base64:', err);
+        try {
+          uploadedAvatarUrl = await toBase64(inviteAvatarFile);
+        } catch (base64Err) {
+          console.error('Base64 fallback failed:', base64Err);
+        }
+      }
+    }
+
+    if (!invitePassword.trim()) {
+      alert('Password is required when inviting a new user.');
+      return;
+    }
+
+    const hashedPassword = await hashPassword(invitePassword);
 
     const newUser: User = {
       id: `usr-${Date.now()}`,
       name: inviteName,
       email: inviteEmail,
       role: inviteRole,
-      organization: inviteOrg,
+      organization: resolvedOrg,
       status: inviteStatus,
-      avatar: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
+      avatar: uploadedAvatarUrl,
       createdDate: new Date().toISOString().split('T')[0],
-      lastLogin: 'Never'
+      lastLogin: 'Never',
+      number: inviteNumber,
+      gender: inviteGender,
+      password: hashedPassword
     };
+
+    const { error } = await supabase.from('users').insert([newUser]);
+    if (error) {
+      console.error(error);
+      alert('Error inviting user: ' + error.message);
+      return;
+    }
+
+    await logSecurityAudit(
+      'Create User Successful',
+      'Info',
+      `Invited user "${inviteName}" (${inviteEmail}) as ${inviteRole} to organization "${resolvedOrg}"`
+    );
 
     setData((prev) => [newUser, ...prev]);
     setToastMessage(`Successfully invited "${inviteName}" as ${inviteRole}!`);
     setShowToast(true);
-    setShowInviteModal(false);
-
-    // reset
-    setInviteName('');
-    setInviteEmail('');
-    setInviteRole('Student');
+    handleCloseInviteModal();
 
     setTimeout(() => setShowToast(false), 3000);
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUserForEdit) return;
+    if (!selectedUserForEdit || !currentUser) return;
+    if (!canUpdate) {
+      alert('Action Denied: You do not have permissions to edit user details.');
+      return;
+    }
+
+    const resolvedOrg = currentUser.role === 'Super Admin' ? editOrg : currentUser.organization;
+    let uploadedAvatarUrl = selectedUserForEdit.avatar;
+
+    if (editAvatarFile) {
+      try {
+        const fileExt = editAvatarFile.name.split('.').pop();
+        const fileName = `avatar-${Date.now()}.${fileExt}`;
+        const filePath = fileName;
+
+        try {
+          await supabase.storage.createBucket('avatars', { public: true });
+        } catch (bucketErr) {
+          console.log('Bucket check/creation failed:', bucketErr);
+        }
+
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, editAvatarFile, {
+            cacheControl: '3600',
+            upsert: true
+          });
+
+        if (uploadErr) {
+          console.warn('Supabase storage upload error, falling back to Base64:', uploadErr.message);
+          uploadedAvatarUrl = await toBase64(editAvatarFile);
+        } else if (uploadData) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(filePath);
+          uploadedAvatarUrl = publicUrl;
+        }
+      } catch (err: any) {
+        console.error('Storage error, falling back to Base64:', err);
+        try {
+          uploadedAvatarUrl = await toBase64(editAvatarFile);
+        } catch (base64Err) {
+          console.error('Base64 fallback failed:', base64Err);
+        }
+      }
+    } else if (!editAvatarPreview) {
+      uploadedAvatarUrl = '';
+    }
+
+    const updated: any = {
+      name: editName,
+      email: editEmail,
+      role: editRole,
+      organization: resolvedOrg,
+      status: editStatus,
+      avatar: uploadedAvatarUrl,
+      number: editNumber,
+      gender: editGender
+    };
+
+    if (editPassword.trim()) {
+      updated.password = await hashPassword(editPassword);
+    }
+
+    const { error } = await supabase
+      .from('users')
+      .update(updated)
+      .eq('id', selectedUserForEdit.id);
+
+    if (error) {
+      console.error(error);
+      alert('Error updating user: ' + error.message);
+      return;
+    }
+
+    // Identify and audit suspensions
+    if (editStatus !== selectedUserForEdit.status) {
+      const isSuspended = editStatus === 'Inactive' || editStatus === 'Pending';
+      await logSecurityAudit(
+        isSuspended ? 'Suspend User Successful' : 'Reactivate User Successful',
+        isSuspended ? 'High' : 'Medium',
+        `Changed status for user "${editName}" (${editEmail}) to ${editStatus}.`
+      );
+    } else {
+      await logSecurityAudit(
+        'Update User Successful',
+        'Medium',
+        `Updated details for user "${editName}" (${editEmail}). Role: ${editRole}, Org: ${resolvedOrg}.`
+      );
+    }
 
     setData((prev) =>
       prev.map((u) => {
         if (u.id === selectedUserForEdit.id) {
           return {
             ...u,
-            name: editName,
-            email: editEmail,
-            role: editRole,
-            organization: editOrg,
-            status: editStatus
+            ...updated
           };
         }
         return u;
@@ -126,6 +408,8 @@ export default function UsersView() {
     setToastMessage(`Updated user details for "${editName}"`);
     setShowToast(true);
     setSelectedUserForEdit(null);
+    setEditAvatarFile(null);
+    setEditAvatarPreview('');
 
     setTimeout(() => setShowToast(false), 3000);
   };
@@ -163,11 +447,38 @@ export default function UsersView() {
     }
   };
 
-  const handleToggleStatus = (id: string) => {
+  const handleToggleStatus = async (id: string) => {
+    if (!canUpdate) {
+      alert('Action Denied: You do not have permissions to modify user status.');
+      return;
+    }
+    const user = data.find((u) => u.id === id);
+    if (!user) return;
+
+    const newStatus: User['status'] = user.status === 'Active' ? 'Inactive' : 'Active';
+
+    const { error } = await supabase
+      .from('users')
+      .update({ status: newStatus })
+      .eq('id', id);
+
+    if (error) {
+      console.error(error);
+      alert('Error updating user status: ' + error.message);
+      return;
+    }
+
+    const logAction = newStatus === 'Inactive' ? 'Suspend User Successful' : 'Reactivate User Successful';
+    const logSeverity = newStatus === 'Inactive' ? 'High' : 'Medium';
+    await logSecurityAudit(
+      logAction,
+      logSeverity,
+      `Toggled status of user "${user.name}" (${user.email}) to ${newStatus}.`
+    );
+
     setData((prev) =>
       prev.map((u) => {
         if (u.id === id) {
-          const newStatus: User['status'] = u.status === 'Active' ? 'Inactive' : 'Active';
           return { ...u, status: newStatus };
         }
         return u;
@@ -175,17 +486,44 @@ export default function UsersView() {
     );
   };
 
-  const handleDeleteSelected = () => {
+  const handleDeleteSelected = async () => {
+    if (!canDelete) {
+      alert('Action Denied: You do not have permissions to delete user records.');
+      return;
+    }
     if (selectedIds.length === 0) return;
+
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .in('id', selectedIds);
+
+    if (error) {
+      console.error(error);
+      alert('Error deleting selected users: ' + error.message);
+      return;
+    }
+
+    await logSecurityAudit(
+      'Delete Users Successful',
+      'Critical',
+      `Deleted ${selectedIds.length} user records: [${selectedIds.join(', ')}].`
+    );
+
     setData((prev) => prev.filter((u) => !selectedIds.includes(u.id)));
     setSelectedIds([]);
   };
 
-  const handleExportCSV = () => {
-    const csvContent = "data:text/csv;charset=utf-8," 
+  const handleExportCSV = async () => {
+    if (!hasPermission('User and Role Management', 'export')) {
+      alert('Action Denied: You do not have permissions to export user data.');
+      return;
+    }
+
+    const csvContent = "data:text/csv;charset=utf-8,"
       + ["Name,Email,Role,Organization,Status"].join(",") + "\n"
       + filteredUsers.map(u => `"${u.name}","${u.email}","${u.role}","${u.organization}","${u.status}"`).join("\n");
-    
+
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -193,11 +531,29 @@ export default function UsersView() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+
+    await logSecurityAudit(
+      'Export User Data Successful',
+      'High',
+      `Exported CSV record list of ${filteredUsers.length} users.`
+    );
   };
+
+  if (!canRead) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm text-center font-sans">
+        <AlertCircle className="w-12 h-12 text-rose-500 mb-4" />
+        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Security Access Violation</h3>
+        <p className="text-xs text-slate-400 mt-2 max-w-sm">
+          You do not hold the required authorization credentials ('User and Role Management' read scope) to view the platform user directory.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -212,13 +568,15 @@ export default function UsersView() {
             <Download className="w-4 h-4" />
             <span>Export CSV</span>
           </button>
-          <button
-            onClick={() => setShowInviteModal(true)}
-            className="flex items-center gap-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Invite New User</span>
-          </button>
+          {canCreate && (
+            <button
+              onClick={handleOpenInviteModal}
+              className="flex items-center gap-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Invite New User</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -271,7 +629,7 @@ export default function UsersView() {
             className="px-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           >
             <option value="All">All Roles</option>
-            <option value="Super Admin">Super Admin</option>
+            {currentUser?.role === 'Super Admin' && <option value="Super Admin">Super Admin</option>}
             <option value="Organization Admin">Organization Admin</option>
             <option value="Mentor">Mentor</option>
             <option value="Assistant">Assistant</option>
@@ -322,11 +680,10 @@ export default function UsersView() {
                 return (
                   <tr
                     key={user.id}
-                    className={`transition-colors ${
-                      isSelected
+                    className={`transition-colors ${isSelected
                         ? 'bg-blue-50/20 dark:bg-blue-900/10'
                         : 'hover:bg-slate-50/50 dark:hover:bg-slate-750/30'
-                    }`}
+                      }`}
                   >
                     <td className="px-5 py-4 w-10">
                       <button onClick={() => handleSelectOne(user.id)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
@@ -348,19 +705,23 @@ export default function UsersView() {
                         <div className="flex flex-col min-w-0">
                           <span className="font-bold text-slate-800 dark:text-white truncate">{user.name}</span>
                           <span className="text-[10px] text-slate-400 truncate">{user.email}</span>
+                          {(user.number || user.gender) && (
+                            <span className="text-[9px] text-slate-400/80 truncate mt-0.5">
+                              {user.gender ? `${user.gender} • ` : ''}{user.number || ''}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
                     <td className="px-5 py-4">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                        user.role === 'Super Admin'
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${user.role === 'Super Admin'
                           ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400'
                           : user.role === 'Organization Admin'
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400'
-                          : user.role === 'Mentor'
-                          ? 'bg-teal-100 text-teal-700 dark:bg-teal-950/20 dark:text-teal-400'
-                          : 'bg-slate-100 text-slate-700 dark:bg-slate-750/50 dark:text-slate-300'
-                      }`}>
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400'
+                            : user.role === 'Mentor'
+                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-950/20 dark:text-teal-400'
+                              : 'bg-slate-100 text-slate-700 dark:bg-slate-750/50 dark:text-slate-300'
+                        }`}>
                         {user.role}
                       </span>
                     </td>
@@ -373,17 +734,15 @@ export default function UsersView() {
                     <td className="px-5 py-4">
                       <button
                         onClick={() => handleToggleStatus(user.id)}
-                        className={`px-2 py-0.5 rounded-full font-bold text-[9px] flex items-center gap-1 cursor-pointer hover:opacity-85 transition-all ${
-                          user.status === 'Active'
+                        className={`px-2 py-0.5 rounded-full font-bold text-[9px] flex items-center gap-1 cursor-pointer hover:opacity-85 transition-all ${user.status === 'Active'
                             ? 'bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400'
                             : user.status === 'Pending'
-                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
-                            : 'bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400'
-                        }`}
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
+                              : 'bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400'
+                          }`}
                       >
-                        <span className={`w-1.2 h-1.2 rounded-full inline-block ${
-                          user.status === 'Active' ? 'bg-green-500' : user.status === 'Pending' ? 'bg-amber-500' : 'bg-red-500'
-                        }`} />
+                        <span className={`w-1.2 h-1.2 rounded-full inline-block ${user.status === 'Active' ? 'bg-green-500' : user.status === 'Pending' ? 'bg-amber-500' : 'bg-red-500'
+                          }`} />
                         <span>{user.status}</span>
                       </button>
                     </td>
@@ -439,11 +798,10 @@ export default function UsersView() {
                 <button
                   key={page}
                   onClick={() => setCurrentPage(page)}
-                  className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
-                    currentPage === page
+                  className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${currentPage === page
                       ? 'bg-blue-600 text-white'
                       : 'hover:bg-slate-150 text-slate-600'
-                  }`}
+                    }`}
                 >
                   {page}
                 </button>
@@ -483,7 +841,7 @@ export default function UsersView() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowInviteModal(false)}
+              onClick={handleCloseInviteModal}
               className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs"
             />
             <div className="flex min-h-full items-center justify-center p-4">
@@ -502,7 +860,7 @@ export default function UsersView() {
                     <p className="text-[10px] text-blue-100 mt-0.5">Disseminate access credentials and secure roles</p>
                   </div>
                   <button
-                    onClick={() => setShowInviteModal(false)}
+                    onClick={handleCloseInviteModal}
                     className="p-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white transition-all cursor-pointer"
                   >
                     <X className="w-4 h-4" />
@@ -511,6 +869,41 @@ export default function UsersView() {
 
                 <form onSubmit={handleInviteSubmit}>
                   <div className="p-5 space-y-4 text-xs">
+                    {/* Avatar Upload */}
+                    <div className="flex flex-col items-center justify-center pb-2 border-b border-slate-100 dark:border-slate-750">
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-2">User Avatar</label>
+                      <div className="relative group cursor-pointer">
+                        <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 transition-colors flex items-center justify-center bg-slate-50 dark:bg-slate-900 relative shadow-inner">
+                          {inviteAvatarPreview ? (
+                            <img src={inviteAvatarPreview} alt="Avatar Preview" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-550 p-2 text-center">
+                              <Plus className="w-6 h-6 mb-0.5 text-slate-405" />
+                              <span className="text-[9px] font-bold">Upload</span>
+                            </div>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleInviteAvatarChange}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          />
+                        </div>
+                        {inviteAvatarPreview && (
+                          <button
+                            type="button"
+                            onClick={handleRemoveInviteAvatar}
+                            className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-650 text-white rounded-full p-1 shadow-md transition-colors cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-1.5 text-center">
+                        Supports PNG, JPG, or GIF (Max 2MB)
+                      </p>
+                    </div>
+
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Full Name</label>
                       <input
@@ -535,6 +928,43 @@ export default function UsersView() {
                       />
                     </div>
 
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Password</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Enter temporary password"
+                        value={invitePassword}
+                        onChange={(e) => setInvitePassword(e.target.value)}
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phone Number</label>
+                        <input
+                          type="tel"
+                          placeholder="e.g. +91 98765 43210"
+                          value={inviteNumber}
+                          onChange={(e) => setInviteNumber(e.target.value)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Gender</label>
+                        <select
+                          value={inviteGender}
+                          onChange={(e) => setInviteGender(e.target.value as any)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        >
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Others">Others</option>
+                        </select>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Role Allocation</label>
@@ -543,8 +973,12 @@ export default function UsersView() {
                           onChange={(e) => setInviteRole(e.target.value as UserRole)}
                           className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
                         >
-                          <option value="Super Admin">Super Admin</option>
-                          <option value="Organization Admin">Organization Admin</option>
+                          {currentUser?.role === 'Super Admin' && (
+                            <>
+                              <option value="Super Admin">Super Admin</option>
+                              <option value="Organization Admin">Organization Admin</option>
+                            </>
+                          )}
                           <option value="Mentor">Mentor</option>
                           <option value="Assistant">Assistant</option>
                           <option value="Student">Student</option>
@@ -567,20 +1001,26 @@ export default function UsersView() {
 
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Affiliated Organization</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Srinagar EdValley School"
+                      <select
                         value={inviteOrg}
                         onChange={(e) => setInviteOrg(e.target.value)}
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                      />
+                        disabled={currentUser?.role !== 'Super Admin'}
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <option value="">Select Tenant Organization</option>
+                        {orgsList.map((orgName) => (
+                          <option key={orgName} value={orgName}>
+                            {orgName}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
                   <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2.5">
                     <button
                       type="button"
-                      onClick={() => setShowInviteModal(false)}
+                      onClick={handleCloseInviteModal}
                       className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-lg transition-all cursor-pointer"
                     >
                       Cancel
@@ -632,6 +1072,41 @@ export default function UsersView() {
 
                 <form onSubmit={handleEditSubmit}>
                   <div className="p-5 space-y-4 text-xs">
+                    {/* Avatar Upload */}
+                    <div className="flex flex-col items-center justify-center pb-2 border-b border-slate-100 dark:border-slate-750">
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-2">User Avatar</label>
+                      <div className="relative group cursor-pointer">
+                        <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 transition-colors flex items-center justify-center bg-slate-50 dark:bg-slate-900 relative shadow-inner">
+                          {editAvatarPreview ? (
+                            <img src={editAvatarPreview} alt="Avatar Preview" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-550 p-2 text-center">
+                              <Plus className="w-6 h-6 mb-0.5 text-slate-405" />
+                              <span className="text-[9px] font-bold">Upload</span>
+                            </div>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleEditAvatarChange}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          />
+                        </div>
+                        {editAvatarPreview && (
+                          <button
+                            type="button"
+                            onClick={handleRemoveEditAvatar}
+                            className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-650 text-white rounded-full p-1 shadow-md transition-colors cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-1.5 text-center">
+                        Supports PNG, JPG, or GIF (Max 2MB)
+                      </p>
+                    </div>
+
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">User Full Name</label>
                       <input
@@ -654,6 +1129,42 @@ export default function UsersView() {
                       />
                     </div>
 
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">New Password (Optional)</label>
+                      <input
+                        type="password"
+                        placeholder="Leave blank to keep current password"
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phone Number</label>
+                        <input
+                          type="tel"
+                          placeholder="e.g. +91 98765 43210"
+                          value={editNumber}
+                          onChange={(e) => setEditNumber(e.target.value)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Gender</label>
+                        <select
+                          value={editGender}
+                          onChange={(e) => setEditGender(e.target.value as any)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        >
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Others">Others</option>
+                        </select>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Platform Role</label>
@@ -662,8 +1173,12 @@ export default function UsersView() {
                           onChange={(e) => setEditRole(e.target.value as UserRole)}
                           className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
                         >
-                          <option value="Super Admin">Super Admin</option>
-                          <option value="Organization Admin">Organization Admin</option>
+                          {currentUser?.role === 'Super Admin' && (
+                            <>
+                              <option value="Super Admin">Super Admin</option>
+                              <option value="Organization Admin">Organization Admin</option>
+                            </>
+                          )}
                           <option value="Mentor">Mentor</option>
                           <option value="Assistant">Assistant</option>
                           <option value="Student">Student</option>
@@ -686,12 +1201,19 @@ export default function UsersView() {
 
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Affiliated Organization</label>
-                      <input
-                        type="text"
+                      <select
                         value={editOrg}
                         onChange={(e) => setEditOrg(e.target.value)}
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                      />
+                        disabled={currentUser?.role !== 'Super Admin'}
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <option value="">Select Tenant Organization</option>
+                        {orgsList.map((orgName) => (
+                          <option key={orgName} value={orgName}>
+                            {orgName}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 

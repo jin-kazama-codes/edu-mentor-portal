@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef, FormEvent, KeyboardEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   MessageSquare,
@@ -20,9 +20,13 @@ import {
   Smile,
   Plus,
   ShieldAlert,
-  Sparkles
+  Sparkles,
+  ChevronLeft
 } from 'lucide-react';
 
+
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/auth';
 
 interface ChatChannel {
   id: string;
@@ -33,39 +37,191 @@ interface ChatChannel {
   avatar?: string;
 }
 
-export default function MessagingView() {
-  const [channels, setChannels] = useState<ChatChannel[]>([
-    { id: 'ch-ann', name: 'announcements', type: 'channel', unreadCount: 2, subtitle: 'Public announcements broadcast' },
-    { id: 'ch-calc', name: 'calculus-doubt-room', type: 'channel', unreadCount: 0, subtitle: 'Group calculus reviews' },
-    { id: 'ch-parent-tariq', name: 'Tariq Khan (Parent)', type: 'direct', unreadCount: 1, subtitle: 'Zoya\'s parent', avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80' },
-    { id: 'ch-mentor-aadil', name: 'Aadil Bhat (Mentor)', type: 'direct', unreadCount: 0, subtitle: 'Physics & Math faculty', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' },
-    { id: 'ch-parent-shafi', name: 'Mehreen Yusuf (Parent)', type: 'direct', unreadCount: 0, subtitle: 'Bisma\'s parent', avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80' }
-  ]);
+interface MessagingViewProps {
+  selectedOrg?: string;
+}
 
-  const [activeChannelId, setActiveChannelId] = useState('ch-parent-tariq');
+export default function MessagingView({ selectedOrg = 'All Organizations' }: MessagingViewProps) {
+  const { currentUser } = useAuth();
+  const [channels, setChannels] = useState<ChatChannel[]>([]);
+  const [activeChannelId, setActiveChannelId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [textInput, setTextInput] = useState('');
-  
-  // Manage conversation messages inside UI state to support live appending and AI simulation
-  const [conversationStreams, setConversationStreams] = useState<Record<string, Array<{
-    id: string;
-    sender: string;
-    avatar?: string;
-    text: string;
-    time: string;
-    isSelf: boolean;
-  }>>>({
-    'ch-parent-tariq': [
-      { id: 'm-1', sender: 'Tariq Khan', text: 'Assalamu alaikum Aadil sir, wanted to check on Zoyas scores in derivatives mock test?', time: '10:14 AM', isSelf: false, avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80' },
-      { id: 'm-2', sender: 'Aadil Bhat', text: 'Wa alaikumussalam Tariq sahab! Zoya scored 9/10. She did beautifully, although she made a quick algebraic error in the last quotient rule problem. Nothing to worry about.', time: '10:20 AM', isSelf: true }
-    ],
-    'ch-ann': [
-      { id: 'm-ann-1', sender: 'System Node', text: 'Weekly faculty review has been set for Saturday morning at 10:00 AM UTC. Please ensure all student reports are drafted.', time: 'June 28', isSelf: false }
-    ],
-    'ch-calc': [
-      { id: 'm-calc-1', sender: 'Bisma Yusuf', text: 'Can anyone explain why the limits calculation returns undefined for composite boundary fractions?', time: '09:00 AM', isSelf: false, avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80' }
-    ]
-  });
+  const [activeMessages, setActiveMessages] = useState<any[]>([]);
+  const [showMobileChat, setShowMobileChat] = useState(false);
+  const [notification, setNotification] = useState<{ sender: string; text: string } | null>(null);
+  const [adminNames, setAdminNames] = useState<string[]>(['f2fintech', 'codevamo', 'mahin bhat']);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    async function loadChannels() {
+      let query = supabase.from('chat_channels').select('*');
+      
+      const orgToFilter = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        : currentUser.organization;
+      if (orgToFilter) {
+        query = query.eq('organization', orgToFilter);
+      }
+      
+      const { data, error } = await query;
+      if (!error && data) {
+        let filtered = data;
+
+        // Fetch users in the active organization to identify their roles
+        let usersQuery = supabase.from('users').select('id, name, role, organization, mentor_id, avatar');
+        if (orgToFilter) {
+          usersQuery = usersQuery.eq('organization', orgToFilter);
+        }
+        const { data: orgUsers, error: usersErr } = await usersQuery;
+
+        if (!usersErr && orgUsers) {
+          const mentorsAndAssistants = orgUsers
+            .filter(u => u.role === 'Mentor' || u.role === 'Assistant')
+            .map(u => u.name.toLowerCase().trim());
+          const admins = orgUsers
+            .filter(u => u.role === 'Organization Admin' || u.role === 'Super Admin')
+            .map(u => u.name.toLowerCase().trim());
+          setAdminNames(admins);
+
+          if (currentUser.role === 'Organization Admin' || currentUser.role === 'Super Admin') {
+            // Admin chats with Mentors and Assistants
+            filtered = data.filter(c =>
+              c.type === 'channel' ||
+              mentorsAndAssistants.includes(c.name.toLowerCase().trim())
+            );
+          } else if (currentUser.role === 'Mentor') {
+            // Mentor chats with Admin (the channel matching their own name)
+            // AND their Assistants (channels matching the assistant's name)
+            const myAssistants = orgUsers
+              .filter(u => u.role === 'Assistant' && u.mentor_id === currentUser.id)
+              .map(u => u.name.toLowerCase().trim());
+
+            filtered = data.filter(c =>
+              c.type === 'channel' ||
+              c.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
+              myAssistants.includes(c.name.toLowerCase().trim())
+            );
+
+            const adminName = orgUsers.find(u => u.role === 'Organization Admin')?.name || 'Organization Admin';
+            filtered = filtered.map(c => {
+              if (c.type === 'direct' && c.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim()) {
+                return {
+                  ...c,
+                  name: adminName,
+                  subtitle: 'Organization Administrator',
+                  avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80'
+                };
+              }
+              return c;
+            });
+          } else if (currentUser.role === 'Assistant') {
+            // Assistant only chats with their Mentor (the channel matching their own name)
+            filtered = data.filter(c =>
+              c.type === 'channel' ||
+              c.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim()
+            );
+
+            const myMentor = orgUsers.find(u => u.id === currentUser.mentor_id);
+            const mentorName = myMentor ? myMentor.name : 'Mentor';
+
+            filtered = filtered.map(c => {
+              if (c.type === 'direct' && c.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim()) {
+                return {
+                  ...c,
+                  name: mentorName,
+                  subtitle: 'Mentor',
+                  avatar: myMentor?.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
+                };
+              }
+              return c;
+            });
+          } else {
+            // Students or other roles get no channels
+            filtered = [];
+          }
+        }
+        setChannels(filtered);
+        
+        if (filtered.length > 0) {
+          const hasActive = filtered.some(c => c.id === activeChannelId);
+          if (!hasActive) {
+            setActiveChannelId(filtered[0].id);
+          }
+        } else {
+          setActiveChannelId('');
+        }
+      }
+    }
+    loadChannels();
+  }, [currentUser, selectedOrg]);
+
+  useEffect(() => {
+    if (!activeChannelId) {
+      setActiveMessages([]);
+      return;
+    }
+    async function loadMessages() {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('channel_id', activeChannelId)
+        .order('created_at', { ascending: true });
+      if (!error && data) {
+        setActiveMessages(data);
+      }
+    }
+    loadMessages();
+  }, [activeChannelId]);
+
+  // Supabase Realtime Postgres Changes Subscription
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'chat_messages'
+        },
+        (payload) => {
+          const newMsg = payload.new;
+          if (newMsg.channel_id === activeChannelId) {
+            setActiveMessages((prev) => {
+              if (prev.some((m) => m.id === newMsg.id)) {
+                return prev;
+              }
+              return [...prev, newMsg];
+            });
+          } else {
+            // Message in another channel: update unread counter & show toast
+            setChannels((prev) =>
+              prev.map((ch) => {
+                if (ch.id === newMsg.channel_id) {
+                  if (newMsg.sender.toLowerCase().trim() !== currentUser.name.toLowerCase().trim()) {
+                    setNotification({
+                      sender: newMsg.sender,
+                      text: newMsg.text
+                    });
+                    setTimeout(() => setNotification(null), 4000);
+                    return { ...ch, unreadCount: (ch.unreadCount || 0) + 1 };
+                  }
+                }
+                return ch;
+              })
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeChannelId, currentUser]);
 
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -74,66 +230,107 @@ export default function MessagingView() {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-  }, [conversationStreams, activeChannelId]);
+  }, [activeMessages, activeChannelId]);
 
-  const handleSendMessage = (e?: FormEvent) => {
+  const handleSendMessage = async (e?: FormEvent) => {
     if (e) e.preventDefault();
-    if (!textInput.trim()) return;
+    if (!textInput.trim() || !currentUser || !activeChannelId) return;
 
-    const currentStream = conversationStreams[activeChannelId] || [];
+    // Ensure activeChannelId actually exists in loaded channels to avoid foreign key errors
+    if (!channels.some(c => c.id === activeChannelId)) {
+      alert('No active channel selected or channel does not exist.');
+      return;
+    }
+
     const userMsg = {
       id: `live-m-${Date.now()}`,
-      sender: 'Super Admin',
+      channel_id: activeChannelId,
+      sender: currentUser.name,
       text: textInput,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isSelf: true
+      isSelf: true,
+      avatar: currentUser.avatar || '',
+      organization: currentUser.organization || 'Global'
     };
 
-    setConversationStreams((prev) => ({
-      ...prev,
-      [activeChannelId]: [...currentStream, userMsg]
-    }));
+    const { error } = await supabase.from('chat_messages').insert([userMsg]);
+    if (error) {
+      console.error(error);
+      alert('Error sending message: ' + error.message);
+      return;
+    }
 
+    setActiveMessages((prev) => [...prev, userMsg]);
     setTextInput('');
 
     // Clear unreads
+    await supabase
+      .from('chat_channels')
+      .update({ unreadCount: 0 })
+      .eq('id', activeChannelId);
+
     setChannels((prev) =>
       prev.map((ch) => (ch.id === activeChannelId ? { ...ch, unreadCount: 0 } : ch))
     );
 
     // Simulate reactive parent reply if texting Tariq
     if (activeChannelId === 'ch-parent-tariq') {
-      setTimeout(() => {
+      setTimeout(async () => {
         const replyMsg = {
           id: `live-reply-${Date.now()}`,
+          channel_id: 'ch-parent-tariq',
           sender: 'Tariq Khan',
           avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80',
           text: 'Thank you for the update sir. I will sit with her this evening to review her quotient calculations and keep her stress free. Looking forward to the scheduled parent meeting!',
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isSelf: false
+          isSelf: false,
+          organization: currentUser.organization || 'Global'
         };
-        setConversationStreams((prev) => ({
-          ...prev,
-          [activeChannelId]: [...(prev[activeChannelId] || []), replyMsg]
-        }));
+
+        const { error: replyErr } = await supabase.from('chat_messages').insert([replyMsg]);
+        if (!replyErr) {
+          setActiveMessages((prev) => [...prev, replyMsg]);
+        }
       }, 2500);
     }
   };
 
-  const handleKeyPress = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSendMessage();
-    }
-  };
+
 
   const activeChannel = channels.find((ch) => ch.id === activeChannelId);
-  const activeMessages = conversationStreams[activeChannelId] || [];
 
   return (
-    <div className="h-[calc(100vh-170px)] flex flex-col md:flex-row bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-850 overflow-hidden shadow-sm">
+    <div className="relative h-[calc(100vh-170px)] flex flex-col lg:flex-row bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-850 overflow-hidden shadow-sm">
+      {/* Toast Notification for Real-Time messages */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="absolute top-4 right-4 z-50 flex items-center gap-3 bg-white dark:bg-slate-850 border border-slate-150 dark:border-slate-700 shadow-xl rounded-xl p-3.5 max-w-sm pointer-events-auto"
+          >
+            <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center shrink-0">
+              <MessageSquare className="w-4.5 h-4.5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h5 className="text-[11px] font-bold text-slate-800 dark:text-white">{notification.sender}</h5>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{notification.text}</p>
+            </div>
+            <button
+              onClick={() => setNotification(null)}
+              className="text-slate-400 hover:text-slate-650 dark:hover:text-slate-350 text-xs shrink-0 font-medium cursor-pointer"
+            >
+              Close
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       
       {/* Sidebar: Channels/Threads list (4 columns equivalence) */}
-      <div className="w-full md:w-80 border-r border-slate-100 dark:border-slate-850 flex flex-col shrink-0 bg-slate-50/50 dark:bg-slate-900/10">
+      <div className={`w-full lg:w-80 border-r border-slate-100 dark:border-slate-850 flex flex-col shrink-0 bg-slate-50/50 dark:bg-slate-900/10 ${
+        showMobileChat ? 'hidden lg:flex' : 'flex'
+      }`}>
         
         {/* Workspace Search */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-850 space-y-3">
@@ -172,7 +369,10 @@ export default function MessagingView() {
                   return (
                     <button
                       key={ch.id}
-                      onClick={() => { setActiveChannelId(ch.id); }}
+                      onClick={() => {
+                        setActiveChannelId(ch.id);
+                        setShowMobileChat(true);
+                      }}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-left cursor-pointer transition-all ${
                         isSelected 
                           ? 'bg-blue-600 text-white font-bold' 
@@ -196,7 +396,7 @@ export default function MessagingView() {
 
           {/* Direct threads list */}
           <div>
-            <span className="text-[9px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-2">Private Mentors & Parents</span>
+            <span className="text-[9px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-2">Chats</span>
             <div className="space-y-1">
               {channels
                 .filter((ch) => ch.type === 'direct' && ch.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -205,7 +405,10 @@ export default function MessagingView() {
                   return (
                     <button
                       key={ch.id}
-                      onClick={() => { setActiveChannelId(ch.id); }}
+                      onClick={() => {
+                        setActiveChannelId(ch.id);
+                        setShowMobileChat(true);
+                      }}
                       className={`w-full flex items-center justify-between p-2 rounded-xl text-left cursor-pointer transition-all ${
                         isSelected 
                           ? 'bg-blue-600 text-white font-bold shadow-sm shadow-blue-600/10' 
@@ -244,11 +447,20 @@ export default function MessagingView() {
       </div>
 
       {/* Main Conversation Stream */}
-      <div className="flex-1 flex flex-col justify-between bg-white dark:bg-slate-800">
+      <div className={`flex-1 flex flex-col justify-between bg-white dark:bg-slate-800 ${
+        !showMobileChat ? 'hidden lg:flex' : 'flex'
+      }`}>
         
         {/* Chat Stream Header */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between shrink-0 bg-slate-50/10">
           <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => setShowMobileChat(false)}
+              className="lg:hidden p-1.5 -ml-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-650 shrink-0 cursor-pointer"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
             {activeChannel?.type === 'channel' ? (
               <Hash className="w-5 h-5 text-slate-400 shrink-0" />
             ) : (
@@ -277,40 +489,55 @@ export default function MessagingView() {
           ref={chatContainerRef}
           className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/10 dark:bg-slate-900/5"
         >
-          {activeMessages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex items-start gap-3 ${msg.isSelf ? 'justify-end' : 'justify-start'}`}
-            >
-              {!msg.isSelf && msg.avatar && (
-                <img
-                  src={msg.avatar}
-                  alt={msg.sender}
-                  referrerPolicy="no-referrer"
-                  className="w-8 h-8 rounded-lg object-cover ring-1 ring-slate-100 shrink-0 shadow-xs"
-                />
+          {!activeChannelId || channels.length === 0 ? (
+            <div className="py-24 text-center text-slate-450 dark:text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
+              <MessageSquare className="w-8 h-8 text-slate-300 dark:text-slate-600 animate-pulse" />
+              <span>No chat channels found for this organization.</span>
+            </div>
+          ) : (
+            <>
+              {activeMessages.map((msg) => {
+                const isMessageSelf = msg.sender.toLowerCase().trim() === currentUser.name.toLowerCase().trim();
+                const isAdminSender = adminNames.includes(msg.sender.toLowerCase().trim());
+                const bubbleColorClass = isAdminSender
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'bg-emerald-600 dark:bg-emerald-700 text-white font-semibold';
+
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex items-start gap-3 ${isMessageSelf ? 'justify-end' : 'justify-start'}`}
+                  >
+                    {!isMessageSelf && msg.avatar && (
+                      <img
+                        src={msg.avatar}
+                        alt={msg.sender}
+                        referrerPolicy="no-referrer"
+                        className="w-8 h-8 rounded-lg object-cover ring-1 ring-slate-100 shrink-0 shadow-xs"
+                      />
+                    )}
+                    <div className={`max-w-[70%] space-y-1 ${isMessageSelf ? 'order-1' : 'order-2'}`}>
+                      {/* Meta details */}
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 dark:text-slate-250 text-[10px]">{msg.sender}</span>
+                        <span className="text-[8px] text-slate-400 font-mono">{msg.time}</span>
+                      </div>
+                      {/* Message Body Bubble */}
+                      <div className={`p-3 rounded-2xl text-[11.5px] leading-relaxed ${bubbleColorClass} ${
+                        isMessageSelf ? 'rounded-tr-xs' : 'rounded-tl-xs'
+                      }`}>
+                        <p>{msg.text}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {activeMessages.length === 0 && (
+                <div className="py-24 text-center text-slate-400 text-xs">
+                  Secure messaging timeline begins here. Direct chat transcripts are locked.
+                </div>
               )}
-              <div className={`max-w-[70%] space-y-1 ${msg.isSelf ? 'order-1' : 'order-2'}`}>
-                {/* Meta details */}
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-800 dark:text-slate-250 text-[10px]">{msg.sender}</span>
-                  <span className="text-[8px] text-slate-400 font-mono">{msg.time}</span>
-                </div>
-                {/* Message Body Bubble */}
-                <div className={`p-3 rounded-2xl text-[11.5px] leading-relaxed ${
-                  msg.isSelf
-                    ? 'bg-blue-600 text-white font-semibold rounded-tr-xs'
-                    : 'bg-slate-100 dark:bg-slate-750 text-slate-700 dark:text-slate-300 rounded-tl-xs'
-                }`}>
-                  <p>{msg.text}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-          {activeMessages.length === 0 && (
-            <div className="py-24 text-center text-slate-400 text-xs">
-              Secure messaging timeline begins here. Direct chat transcripts are locked.
-            </div>
+            </>
           )}
         </div>
 
@@ -325,9 +552,9 @@ export default function MessagingView() {
               type="text"
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder={`Write a reply to ${activeChannel?.name}...`}
-              className="flex-1 min-w-0 bg-transparent text-xs text-slate-800 dark:text-white focus:outline-none placeholder-slate-400 font-medium"
+              disabled={!activeChannelId}
+              placeholder={activeChannel ? `Write a reply to ${activeChannel.name}...` : "No channel selected"}
+              className="flex-1 min-w-0 bg-transparent text-xs text-slate-800 dark:text-white focus:outline-none placeholder-slate-400 font-medium disabled:opacity-50"
             />
 
             <button type="button" className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400">
@@ -335,7 +562,7 @@ export default function MessagingView() {
             </button>
             <button
               type="submit"
-              disabled={!textInput.trim()}
+              disabled={!textInput.trim() || !activeChannelId}
               className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 shrink-0 cursor-pointer"
             >
               <Send className="w-4 h-4" />
