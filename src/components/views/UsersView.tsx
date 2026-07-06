@@ -679,15 +679,15 @@ export default function UsersView() {
             <Download className="w-4 h-4" />
             <span>Export CSV</span>
           </button>
-          {/* {canCreate && (
+          {currentUser?.role === 'Super Admin' && (
             <button
               onClick={handleOpenInviteModal}
-              className="flex items-center gap-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Invite New User</span>
+              <span>Add Organization Admin</span>
             </button>
-          )} */}
+          )}
         </div>
       </div>
 
