@@ -17,7 +17,9 @@ import {
   Trash2,
   GraduationCap,
   Sparkles,
-  CheckCircle
+  CheckCircle,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { User as UserType } from '../../types';
 import { supabase } from '../../lib/supabase';
@@ -117,6 +119,8 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
   const [editMentorId, setEditMentorId] = useState('');
   const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
   const [editAvatarPreview, setEditAvatarPreview] = useState('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [showEditPassword, setShowEditPassword] = useState<boolean>(false);
 
   // Reset Add Form
   useEffect(() => {
@@ -130,6 +134,7 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
       setFormMentorId('');
       setFormAvatarFile(null);
       setFormAvatarPreview('');
+      setShowPassword(false);
     }
   }, [showAddModal]);
 
@@ -145,6 +150,7 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
       setEditMentorId(selectedAssistantForEdit.mentor_id || '');
       setEditAvatarPreview(selectedAssistantForEdit.avatar || '');
       setEditAvatarFile(null);
+      setShowEditPassword(false);
     }
   }, [selectedAssistantForEdit]);
 
@@ -716,14 +722,23 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Password *</label>
-                    <input
-                      type="password"
-                      required
-                      value={formPassword}
-                      onChange={(e) => setFormPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        required
+                        value={formPassword}
+                        onChange={(e) => setFormPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full pl-3 pr-10 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -896,13 +911,22 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Update Password (Optional)</label>
-                    <input
-                      type="password"
-                      value={editPassword}
-                      onChange={(e) => setEditPassword(e.target.value)}
-                      placeholder="Leave blank to keep same"
-                      className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showEditPassword ? "text" : "password"}
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        placeholder="Leave blank to keep same"
+                        className="w-full pl-3 pr-10 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEditPassword(!showEditPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                      >
+                        {showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
