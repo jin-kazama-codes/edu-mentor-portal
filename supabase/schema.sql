@@ -48,6 +48,8 @@ CREATE TABLE mentors (
   performance TEXT NOT NULL CHECK (performance IN ('Outstanding', 'Exceeding', 'Meeting', 'Needs Review')),
   avatar TEXT NOT NULL,
   organization TEXT NOT NULL,
+  phone TEXT,
+  gender TEXT CHECK (gender IN ('Male', 'Female', 'Others')),
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 

@@ -24,9 +24,10 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { mentors as initialMentors, sessions as mockSessions } from '../../data/mockData';
-import { Mentor } from '../../types';
+import { Mentor, User } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
+import { hashPassword } from '../../utils/crypto';
 
 interface MentorsViewProps {
   selectedOrg?: string;
@@ -69,32 +70,23 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
   const [showToast, setShowToast] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
 
-  // Mentor-role users for the Add Mentor dropdown
-  const [mentorUsers, setMentorUsers] = useState<{ id: string; name: string; email: string; avatar: string }[]>([]);
-
   const [showSubjectDropdown, setShowSubjectDropdown] = useState<boolean>(false);
 
-  // Load users with Mentor role whenever the modal opens
+  // Reset form when modal is closed
   useEffect(() => {
     if (!showAddMentorModal) {
       setShowSubjectDropdown(false);
-      return;
+      setFormName('');
+      setFormEmail('');
+      setFormPhone('');
+      setFormGender('');
+      setFormAvatar('');
+      setFormSubjects(['Mathematics']);
+      setFormExperience('4 Years');
+      setFormAvailability('Full-time');
+      setFormPerformance('Exceeding');
     }
-    if (!currentUser) return;
-    async function loadMentorUsers() {
-      const org = currentUser!.role === 'Super Admin'
-        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
-        : currentUser!.organization;
-      let query = supabase
-        .from('users')
-        .select('id, name, email, avatar')
-        .eq('role', 'Mentor');
-      if (org) query = query.eq('organization', org);
-      const { data: users, error } = await query;
-      if (!error && users) setMentorUsers(users);
-    }
-    loadMentorUsers();
-  }, [showAddMentorModal, currentUser, selectedOrg]);
+  }, [showAddMentorModal]);
 
   const canUpdate = hasPermission('User and Role Management', 'update');
 
@@ -183,30 +175,27 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
   // Form states for creating a new mentor
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
+  const [formPhone, setFormPhone] = useState('');
+  const [formGender, setFormGender] = useState<'Male' | 'Female' | 'Others' | ''>('');
   const [formAvatar, setFormAvatar] = useState('');
   const [formSubjects, setFormSubjects] = useState<string[]>(['Mathematics']);
   const [formExperience, setFormExperience] = useState('4 Years');
   const [formAvailability, setFormAvailability] = useState<'Full-time' | 'Part-time' | 'Weekends Only' | 'On-demand'>('Full-time');
   const [formPerformance, setFormPerformance] = useState<'Outstanding' | 'Exceeding' | 'Meeting' | 'Needs Review'>('Exceeding');
 
-  // When a mentor user is picked from the dropdown, auto-fill name + email + avatar
-  const handleMentorUserSelect = (userId: string) => {
-    const user = mentorUsers.find((u) => u.id === userId);
-    if (user) {
-      setFormName(user.name);
-      setFormEmail(user.email);
-      setFormAvatar(user.avatar || '');
-    } else {
-      setFormName('');
-      setFormEmail('');
-      setFormAvatar('');
-    }
-  };
-
   const handleAddMentorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formEmail.trim() || !currentUser) {
-      alert('Please select a Mentor User');
+    if (!currentUser) return;
+    if (!formName.trim() || !formEmail.trim()) {
+      alert('Please enter a mentor name and email');
+      return;
+    }
+    if (!formPhone.trim()) {
+      alert('Please enter a phone number');
+      return;
+    }
+    if (!formGender) {
+      alert('Please select a gender');
       return;
     }
     if (formSubjects.length === 0) {
@@ -222,10 +211,37 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
       : currentUser.organization;
 
+    const newUserId = `usr-${Date.now()}`;
+    const hashedPassword = await hashPassword('Password@123'); // Default password for new mentors
+
+    const newUser: User = {
+      id: newUserId,
+      name: formName,
+      email: formEmail,
+      role: 'Mentor',
+      organization: resolvedOrg,
+      status: 'Active',
+      avatar: formAvatar || `https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80`,
+      createdDate: new Date().toISOString().split('T')[0],
+      lastLogin: 'Never',
+      number: formPhone,
+      gender: formGender as 'Male' | 'Female' | 'Others',
+      password: hashedPassword
+    };
+
+    const { error: userError } = await supabase.from('users').insert([newUser]);
+    if (userError) {
+      console.error(userError);
+      alert('Error creating user profile: ' + userError.message);
+      return;
+    }
+
     const newMentor: Mentor = {
       id: `ment-${Date.now()}`,
       name: formName,
       email: formEmail,
+      phone: formPhone,
+      gender: formGender as 'Male' | 'Female' | 'Others',
       subjects: formSubjects,
       studentsAssigned: [],
       experience: formExperience,
@@ -241,6 +257,8 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
     if (error) {
       console.error(error);
       alert('Error adding mentor: ' + error.message);
+      // Rollback user if mentor creation fails
+      await supabase.from('users').delete().eq('id', newUserId);
       return;
     }
 
@@ -248,16 +266,6 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
     setToastMessage(`Mentor "${formName}" added to faculty successfully!`);
     setShowToast(true);
     setShowAddMentorModal(false);
-
-    // Reset form states
-    setFormName('');
-    setFormEmail('');
-    setFormAvatar('');
-    setFormSubjects(['Mathematics']);
-    setFormExperience('4 Years');
-    setFormAvailability('Full-time');
-    setFormPerformance('Exceeding');
-    setMentorUsers([]);
 
     setTimeout(() => {
       setShowToast(false);
@@ -839,20 +847,14 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Mentor Name</label>
-                        <select
+                        <input
+                          type="text"
                           required
-                          defaultValue=""
-                          onChange={(e) => handleMentorUserSelect(e.target.value)}
+                          placeholder="Enter mentor's full name"
+                          value={formName}
+                          onChange={(e) => setFormName(e.target.value)}
                           className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                        >
-                          <option value="" disabled>Select a mentor user…</option>
-                          {mentorUsers.length === 0 && (
-                            <option disabled>No mentor-role users found</option>
-                          )}
-                          {mentorUsers.map((u) => (
-                            <option key={u.id} value={u.id}>{u.name}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Professional Email</label>
@@ -861,12 +863,40 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                           <input
                             type="email"
                             required
-                            readOnly
-                            placeholder="Auto-filled from selected mentor"
+                            placeholder="Enter professional email"
                             value={formEmail}
-                            className="w-full pl-8 pr-2.5 py-2.5 bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none text-slate-600 dark:text-slate-300 cursor-not-allowed"
+                            onChange={(e) => setFormEmail(e.target.value)}
+                            className="w-full pl-8 pr-2.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
                           />
                         </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phone Number</label>
+                        <input
+                          type="tel"
+                          required
+                          placeholder="Enter phone number"
+                          value={formPhone}
+                          onChange={(e) => setFormPhone(e.target.value)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Gender</label>
+                        <select
+                          required
+                          value={formGender}
+                          onChange={(e) => setFormGender(e.target.value as any)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        >
+                          <option value="" disabled>Select gender...</option>
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Others">Others</option>
+                        </select>
                       </div>
                     </div>
 
