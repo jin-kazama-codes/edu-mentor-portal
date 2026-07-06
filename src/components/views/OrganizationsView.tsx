@@ -32,6 +32,11 @@ export default function OrganizationsView() {
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [data, setData] = useState<Organization[]>([]);
 
+  const [actualStudentCount, setActualStudentCount] = useState(0);
+  const [studentCountsMap, setStudentCountsMap] = useState<Record<string, number>>({});
+  const [mentorCountsMap, setMentorCountsMap] = useState<Record<string, number>>({});
+  const [userCountsMap, setUserCountsMap] = useState<Record<string, number>>({});
+
   useEffect(() => {
     async function loadData() {
       const { data: orgs, error } = await supabase
@@ -41,6 +46,30 @@ export default function OrganizationsView() {
       if (!error && orgs) {
         setData(orgs);
       }
+
+      // Fetch actual counts
+      const { data: studentsData } = await supabase.from('students').select('organization');
+      const { data: mentorsData } = await supabase.from('mentors').select('organization');
+      const { data: usersData } = await supabase.from('users').select('organization');
+
+      const sMap: Record<string, number> = {};
+      studentsData?.forEach((s) => {
+        sMap[s.organization] = (sMap[s.organization] || 0) + 1;
+      });
+      setStudentCountsMap(sMap);
+      setActualStudentCount(studentsData?.length || 0);
+
+      const mMap: Record<string, number> = {};
+      mentorsData?.forEach((m) => {
+        mMap[m.organization] = (mMap[m.organization] || 0) + 1;
+      });
+      setMentorCountsMap(mMap);
+
+      const uMap: Record<string, number> = {};
+      usersData?.forEach((u) => {
+        uMap[u.organization] = (uMap[u.organization] || 0) + 1;
+      });
+      setUserCountsMap(uMap);
     }
     loadData();
   }, []);
@@ -208,7 +237,7 @@ export default function OrganizationsView() {
       {/* Stats Summary cards — computed from live data */}
       {(() => {
         const totalTenants = data.length;
-        const totalEnrolled = data.reduce((sum, o) => sum + o.students, 0);
+        const totalEnrolled = actualStudentCount;
         const enterpriseCount = data.filter((o) => o.plan === 'Enterprise').length;
         const activeCount = data.filter((o) => o.status === 'Active').length;
         const renewalRate = totalTenants > 0 ? Math.round((activeCount / totalTenants) * 100) : 0;
@@ -319,9 +348,11 @@ export default function OrganizationsView() {
                       {org.plan}
                     </span>
                   </td>
-                  <td className="px-5 py-4 font-mono font-medium">{org.users} users</td>
-                  <td className="px-5 py-4 font-mono font-medium text-slate-500">{org.students} students</td>
-                  <td className="px-5 py-4 font-mono font-medium text-slate-500">{org.mentors} mentors</td>
+                  <td className="px-5 py-4 font-mono font-medium">{userCountsMap[org.name] || 0} users</td>
+                  <td className="px-5 py-4 font-mono font-medium text-slate-500">
+                    {studentCountsMap[org.name] || 0} / {org.students} students
+                  </td>
+                  <td className="px-5 py-4 font-mono font-medium text-slate-500">{mentorCountsMap[org.name] || 0} mentors</td>
                   <td className="px-5 py-4 font-mono">{org.renewalDate}</td>
                   <td className="px-5 py-4">
                     <button

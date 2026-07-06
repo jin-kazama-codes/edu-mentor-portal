@@ -380,7 +380,7 @@ CREATE POLICY permissions_modify ON permissions FOR ALL USING (
 -- 3. Users policies
 CREATE POLICY users_select ON users FOR SELECT USING (
   LOWER(email) = LOWER(auth.jwt() ->> 'email')
-  OR (check_permission('User and Role Management', 'read') AND organization = get_current_user_org())
+  OR organization = get_current_user_org()
   OR get_current_user_role() = 'Super Admin'
 );
 CREATE POLICY users_insert ON users FOR INSERT WITH CHECK (
