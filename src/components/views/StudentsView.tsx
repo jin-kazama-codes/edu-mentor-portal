@@ -33,6 +33,7 @@ import { students as initialStudents, sessions as mockSessions } from '../../dat
 import { Student } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
+import { hashPassword } from '../../utils/crypto';
 
 interface StudentsViewProps {
   defaultAddOpen?: boolean;
@@ -196,6 +197,7 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
   const [formAge, setFormAge] = useState(16);
   const [formPhone, setFormPhone] = useState('');
   const [formEmail, setFormEmail] = useState('');
+  const [formPassword, setFormPassword] = useState('');
   const [formGender, setFormGender] = useState<'Male' | 'Female' | 'Others' | ''>('');
   const [formGrade, setFormGrade] = useState('11th Grade');
   const [formMentor, setFormMentor] = useState('');
@@ -252,6 +254,31 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
     const uniqueNum = Date.now().toString().slice(-5);
     const studentId = `${orgPrefix}-${new Date().getFullYear()}-${uniqueNum}`;
 
+    // Hash the password and create the login record in public.users table
+    const hashedPassword = await hashPassword(formPassword.trim() || 'Password123!');
+    const newUserId = `usr-${Date.now()}`;
+    const newUser = {
+      id: newUserId,
+      name: formName,
+      email,
+      role: 'Student',
+      organization: resolvedOrg,
+      status: 'Active',
+      avatar: avatarToSave,
+      createdDate: new Date().toISOString().split('T')[0],
+      lastLogin: 'Never',
+      number: formPhone.trim() || undefined,
+      gender: formGender as 'Male' | 'Female' | 'Others' || undefined,
+      password: hashedPassword
+    };
+
+    const { error: userError } = await supabase.from('users').insert([newUser]);
+    if (userError) {
+      console.error(userError);
+      alert('Error creating user profile: ' + userError.message);
+      return;
+    }
+
     // Build upcoming session string from date + topic
     const sessionDateLabel = formSessionDate
       ? new Date(formSessionDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -282,6 +309,8 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
     if (error) {
       console.error(error);
       alert('Error enrolling student: ' + error.message);
+      // Rollback user creation
+      await supabase.from('users').delete().eq('id', newUserId);
       return;
     }
 
@@ -301,6 +330,7 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
     setFormAge(16);
     setFormPhone('');
     setFormEmail('');
+    setFormPassword('');
     setFormGender('');
     setFormGrade('11th Grade');
     setFormMentor(orgMentors.length > 0 ? orgMentors[0].name : '');
@@ -926,6 +956,19 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
                           />
                         </div>
                       </div>
+                    </div>
+
+                    {/* ── Password ── */}
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Login Password</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Create student login password"
+                        value={formPassword}
+                        onChange={(e) => setFormPassword(e.target.value)}
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                      />
                     </div>
 
                     {/* ── Gender ── */}

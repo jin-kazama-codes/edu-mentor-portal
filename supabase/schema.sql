@@ -42,7 +42,7 @@ CREATE TABLE mentors (
   subjects TEXT[] NOT NULL DEFAULT '{}',
   "studentsAssigned" TEXT[] NOT NULL DEFAULT '{}',
   experience TEXT NOT NULL,
-  rating NUMERIC NOT NULL DEFAULT 0.0,
+  rating NUMERIC NOT NULL DEFAULT 5.0,
   availability TEXT NOT NULL CHECK (availability IN ('Full-time', 'Part-time', 'Weekends Only', 'On-demand')),
   "upcomingSessions" INTEGER NOT NULL DEFAULT 0,
   performance TEXT NOT NULL CHECK (performance IN ('Outstanding', 'Exceeding', 'Meeting', 'Needs Review')),
@@ -459,7 +459,7 @@ CREATE POLICY sessions_select ON sessions FOR SELECT USING (
         SELECT mentor_id FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')
       )))
   OR (get_current_user_role() = 'Student' AND organization = get_current_user_org() 
-      AND student = (SELECT name FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')))
+      AND student ILIKE '%' || (SELECT name FROM users WHERE LOWER(email) = LOWER(auth.jwt() ->> 'email')) || '%')
 );
 CREATE POLICY sessions_modify ON sessions FOR ALL USING (
   get_current_user_role() = 'Super Admin'

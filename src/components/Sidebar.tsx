@@ -95,7 +95,7 @@ export default function Sidebar({
     { id: 'mentors', label: 'Mentors', icon: GraduationCap, permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
     { id: 'assistants', label: 'Assistants', icon: UserCheck, permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
     { id: 'students', label: 'Students', icon: GraduationCap, badge: studentCount !== null ? String(studentCount) : undefined, permission: () => currentUser?.role !== 'Student' },
-    { id: 'assignments', label: 'Assignments', icon: Link2, isFeature: true, permission: () => hasPermission('Mentor Assignments', 'read') },
+    { id: 'assignments', label: 'Assignments', icon: Link2, isFeature: true, permission: () => hasPermission('Mentor Assignments', 'read') || currentUser?.role === 'Student' },
     { id: 'calendar', label: 'Calendar', icon: Calendar, permission: () => hasPermission('Session Scheduling', 'read') },
     { id: 'sessions', label: 'Session Notes', icon: FileSpreadsheet, permission: () => hasPermission('Session Scheduling', 'read') },
     { id: 'library', label: 'Content Library', icon: BookOpen, permission: () => hasPermission('Content Library', 'read') },
