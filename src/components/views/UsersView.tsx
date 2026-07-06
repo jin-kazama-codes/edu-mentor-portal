@@ -113,7 +113,7 @@ export default function UsersView() {
   const handleOpenInviteModal = () => {
     setInviteName('');
     setInviteEmail('');
-    setInviteRole('Student');
+    setInviteRole(currentUser?.role === 'Super Admin' ? 'Organization Admin' : 'Student');
     setInviteStatus('Active');
     setInviteAvatarFile(null);
     setInviteAvatarPreview('');
@@ -199,7 +199,7 @@ export default function UsersView() {
     setShowInviteModal(false);
     setInviteName('');
     setInviteEmail('');
-    setInviteRole('Student');
+    setInviteRole(currentUser?.role === 'Super Admin' ? 'Organization Admin' : 'Student');
     setInviteOrg(currentUser?.role !== 'Super Admin' ? (currentUser?.organization || '') : '');
     setInviteAvatarFile(null);
     setInviteAvatarPreview('');
@@ -213,6 +213,11 @@ export default function UsersView() {
     if (!inviteName.trim() || !inviteEmail.trim() || !currentUser) return;
     if (!canCreate) {
       alert('Action Denied: You do not have permissions to invite new users.');
+      return;
+    }
+
+    if (currentUser.role === 'Super Admin' && inviteRole !== 'Organization Admin') {
+      alert('Action Denied: Super Admin can only invite Organization Admin.');
       return;
     }
 
@@ -514,6 +519,46 @@ export default function UsersView() {
     setSelectedIds([]);
   };
 
+  const handleDeleteUser = async (user: User) => {
+    if (!canDelete) {
+      alert('Action Denied: You do not have permissions to delete user records.');
+      return;
+    }
+
+    if (currentUser && user.id === currentUser.id) {
+      alert('Action Denied: You cannot delete your own user account.');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete user "${user.name}" (${user.email})? This action is permanent.`)) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', user.id);
+
+    if (error) {
+      console.error(error);
+      alert('Error deleting user: ' + error.message);
+      return;
+    }
+
+    await logSecurityAudit(
+      'Delete User Successful',
+      'Critical',
+      `Deleted user record: "${user.name}" (${user.email}).`
+    );
+
+    setData((prev) => prev.filter((u) => u.id !== user.id));
+    setSelectedIds((prev) => prev.filter((id) => id !== user.id));
+
+    setToastMessage(`Successfully deleted user "${user.name}"`);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 3000);
+  };
+
   const handleExportCSV = async () => {
     if (!hasPermission('User and Role Management', 'export')) {
       alert('Action Denied: You do not have permissions to export user data.');
@@ -764,6 +809,13 @@ export default function UsersView() {
                         >
                           <Edit className="w-3.5 h-3.5" />
                         </button>
+                        <button
+                          onClick={() => handleDeleteUser(user)}
+                          className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-red-500 cursor-pointer"
+                          title="Delete User"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -973,15 +1025,15 @@ export default function UsersView() {
                           onChange={(e) => setInviteRole(e.target.value as UserRole)}
                           className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
                         >
-                          {currentUser?.role === 'Super Admin' && (
+                          {currentUser?.role === 'Super Admin' ? (
+                            <option value="Organization Admin">Organization Admin</option>
+                          ) : (
                             <>
-                              <option value="Super Admin">Super Admin</option>
-                              <option value="Organization Admin">Organization Admin</option>
+                              <option value="Mentor">Mentor</option>
+                              <option value="Assistant">Assistant</option>
+                              <option value="Student">Student</option>
                             </>
                           )}
-                          <option value="Mentor">Mentor</option>
-                          <option value="Assistant">Assistant</option>
-                          <option value="Student">Student</option>
                         </select>
                       </div>
 

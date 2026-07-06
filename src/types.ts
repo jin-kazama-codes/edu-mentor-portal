@@ -46,6 +46,8 @@ export interface Mentor {
   performance: 'Outstanding' | 'Exceeding' | 'Meeting' | 'Needs Review';
   avatar: string;
   organization: string;
+  phone?: string;
+  gender?: 'Male' | 'Female' | 'Others';
 }
 
 export interface Student {
