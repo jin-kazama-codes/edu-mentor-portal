@@ -36,6 +36,56 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
   const [mentorsList, setMentorsList] = useState<UserType[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
+  const [formMentorsList, setFormMentorsList] = useState<UserType[]>([]);
+  const [orgsList, setOrgsList] = useState<string[]>([]);
+  const [formOrg, setFormOrg] = useState('');
+
+  useEffect(() => {
+    async function loadOrgs() {
+      const { data, error } = await supabase.from('organizations').select('name').order('name');
+      if (!error && data) {
+        setOrgsList(data.map((o: any) => o.name));
+      }
+    }
+    loadOrgs();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrg && selectedOrg !== 'All Organizations') {
+      setFormOrg(selectedOrg);
+    } else {
+      setFormOrg('');
+    }
+  }, [selectedOrg]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    async function loadFormMentors() {
+      const orgToFilterForm = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
+        : currentUser.organization;
+
+      if (!orgToFilterForm) {
+        setFormMentorsList([]);
+        return;
+      }
+
+      const { data: mnts, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'Mentor')
+        .eq('organization', orgToFilterForm)
+        .order('name');
+
+      if (!error && mnts) {
+        setFormMentorsList(mnts);
+      } else {
+        setFormMentorsList([]);
+      }
+    }
+    loadFormMentors();
+  }, [currentUser, selectedOrg, formOrg]);
+
   const canCreate = hasPermission('User and Role Management', 'create');
   const canUpdate = hasPermission('User and Role Management', 'update');
   const canDelete = hasPermission('User and Role Management', 'delete');
@@ -135,8 +185,13 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
       setFormAvatarFile(null);
       setFormAvatarPreview('');
       setShowPassword(false);
+      if (selectedOrg && selectedOrg !== 'All Organizations') {
+        setFormOrg(selectedOrg);
+      } else {
+        setFormOrg('');
+      }
     }
-  }, [showAddModal]);
+  }, [showAddModal, selectedOrg]);
 
   // Set Edit Form when selected assistant changes
   useEffect(() => {
@@ -241,8 +296,13 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
     }
 
     const resolvedOrg = currentUser.role === 'Super Admin'
-      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
       : currentUser.organization;
+
+    if (!resolvedOrg) {
+      alert('Please select an organization');
+      return;
+    }
 
     let uploadedAvatarUrl = '';
     if (formAvatarFile) {
@@ -649,10 +709,28 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
                           className="hidden"
                         />
                       </label>
-                      <p className="text-[10px] text-slate-400 mt-1">PNG, JPG up to 2MB. Optional.</p>
                     </div>
                   </div>
                 </div>
+
+                {currentUser?.role === 'Super Admin' && selectedOrg === 'All Organizations' && (
+                  <div className="mb-4">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Affiliated Organization *</label>
+                    <select
+                      required
+                      value={formOrg}
+                      onChange={(e) => setFormOrg(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="" disabled>Select Tenant Organization</option>
+                      {orgsList.map((orgName) => (
+                        <option key={orgName} value={orgName}>
+                          {orgName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -750,7 +828,7 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
                     className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   >
                     <option value="">Unassigned (Link later)</option>
-                    {mentorsList.map((m) => (
+                    {formMentorsList.map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.name} ({m.email})
                       </option>
@@ -938,7 +1016,7 @@ export default function AssistantsView({ selectedOrg = 'All Organizations' }: As
                     className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   >
                     <option value="">Unassigned (No Mentor)</option>
-                    {mentorsList.map((m) => (
+                    {mentorsList.filter(m => m.organization === selectedAssistantForEdit?.organization).map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.name} ({m.email})
                       </option>

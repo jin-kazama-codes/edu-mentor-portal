@@ -38,7 +38,7 @@ function MainApp() {
   });
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
-  const [selectedOrg, setSelectedOrg] = useState<string>('Bright Future Academy');
+  const [selectedOrg, setSelectedOrg] = useState<string>('All Organizations');
   const [quickActionTrigger, setQuickActionTrigger] = useState<{ action: string; timestamp: number } | null>(null);
 
   // Dynamic organization mapping based on logged-in user context
@@ -46,7 +46,7 @@ function MainApp() {
     if (currentUser) {
       if (currentUser.role !== 'Super Admin') {
         setSelectedOrg(currentUser.organization);
-      } else if (!selectedOrg) {
+      } else if (!selectedOrg || selectedOrg === 'Bright Future Academy') {
         setSelectedOrg('All Organizations');
       }
     }

@@ -97,8 +97,13 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       setFormAvailability('Full-time');
       setFormPerformance('Exceeding');
       setFormRating('5.0');
+      if (selectedOrg && selectedOrg !== 'All Organizations') {
+        setFormOrg(selectedOrg);
+      } else {
+        setFormOrg('');
+      }
     }
-  }, [showAddMentorModal]);
+  }, [showAddMentorModal, selectedOrg]);
 
   const toBase64 = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -228,6 +233,25 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
   const [formPerformance, setFormPerformance] = useState<'Outstanding' | 'Exceeding' | 'Meeting' | 'Needs Review'>('Exceeding');
   const [formRating, setFormRating] = useState<string>('5.0');
 
+  const [orgsList, setOrgsList] = useState<string[]>([]);
+  const [formOrg, setFormOrg] = useState('');
+
+  useEffect(() => {
+    async function loadOrgs() {
+      const { data, error } = await supabase.from('organizations').select('name').order('name');
+      if (!error && data) {
+        setOrgsList(data.map((o: any) => o.name));
+      }
+    }
+    loadOrgs();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrg && selectedOrg !== 'All Organizations') {
+      setFormOrg(selectedOrg);
+    }
+  }, [selectedOrg]);
+
   const handleAddMentorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -257,8 +281,13 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
     }
 
     const resolvedOrg = currentUser.role === 'Super Admin'
-      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
       : currentUser.organization;
+
+    if (!resolvedOrg) {
+      alert('Please select an organization');
+      return;
+    }
 
     const newUserId = `usr-${Date.now()}`;
     const hashedPassword = await hashPassword(formPassword);
@@ -996,6 +1025,25 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                         Supports PNG, JPG, or GIF (Max 2MB)
                       </p>
                     </div>
+
+                    {currentUser?.role === 'Super Admin' && selectedOrg === 'All Organizations' && (
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Affiliated Organization</label>
+                        <select
+                          required
+                          value={formOrg}
+                          onChange={(e) => setFormOrg(e.target.value)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        >
+                          <option value="" disabled>Select Tenant Organization</option>
+                          {orgsList.map((orgName) => (
+                            <option key={orgName} value={orgName}>
+                              {orgName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans">
                       <div>

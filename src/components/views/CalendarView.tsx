@@ -100,6 +100,32 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
   const [bookHomework, setBookHomework] = useState('');
   const [bookNotes, setBookNotes] = useState('');
 
+  const [orgsList, setOrgsList] = useState<string[]>([]);
+  const [formOrg, setFormOrg] = useState('');
+
+  useEffect(() => {
+    async function loadOrgs() {
+      const { data, error } = await supabase.from('organizations').select('name').order('name');
+      if (!error && data) {
+        setOrgsList(data.map((o: any) => o.name));
+      }
+    }
+    loadOrgs();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrg && selectedOrg !== 'All Organizations') {
+      setFormOrg(selectedOrg);
+    } else {
+      setFormOrg('');
+    }
+  }, [selectedOrg, showBookModal]);
+
+  useEffect(() => {
+    setSelectedStudents([]);
+    setBookMentor('');
+  }, [formOrg]);
+
   // Lists for dropdown selection (organization bound)
   const [students, setStudents] = useState<{ id: string; name: string; avatar: string }[]>([]);
   const [mentors, setMentors] = useState<{ id: string; name: string; avatar: string }[]>([]);
@@ -143,29 +169,35 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
     if (!currentUser) return;
     async function loadStudentsAndMentors() {
       const orgToFilter = currentUser.role === 'Super Admin'
-        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
         : currentUser.organization;
 
-      let stdQuery = supabase.from('students').select('id, name, avatar');
-      if (orgToFilter) {
-        stdQuery = stdQuery.eq('organization', orgToFilter);
+      if (!orgToFilter) {
+        setStudents([]);
+        setMentors([]);
+        return;
       }
+
+      let stdQuery = supabase.from('students').select('id, name, avatar');
+      stdQuery = stdQuery.eq('organization', orgToFilter);
       const { data: stdData, error: stdError } = await stdQuery.order('name');
       if (!stdError && stdData) {
         setStudents(stdData);
+      } else {
+        setStudents([]);
       }
 
       let mntQuery = supabase.from('mentors').select('id, name, avatar');
-      if (orgToFilter) {
-        mntQuery = mntQuery.eq('organization', orgToFilter);
-      }
+      mntQuery = mntQuery.eq('organization', orgToFilter);
       const { data: mntData, error: mntError } = await mntQuery.order('name');
       if (!mntError && mntData) {
         setMentors(mntData);
+      } else {
+        setMentors([]);
       }
     }
     loadStudentsAndMentors();
-  }, [currentUser, selectedOrg]);
+  }, [currentUser, selectedOrg, formOrg]);
 
   useEffect(() => {
     if (defaultBookOpen) {
@@ -182,8 +214,13 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
     }
 
     const resolvedOrg = currentUser?.role === 'Super Admin'
-      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
       : currentUser?.organization || 'Bright Future Academy';
+
+    if (!resolvedOrg) {
+      alert('Please select an organization');
+      return;
+    }
 
     const newSession: Session = {
       id: `sess-${Date.now().toString(16).slice(-4)}`,
@@ -583,6 +620,25 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
               </div>
 
               <form onSubmit={handleBookSubmit} className="p-5 space-y-4 max-h-[460px] overflow-y-auto text-xs text-slate-600 dark:text-slate-300">
+                {currentUser?.role === 'Super Admin' && selectedOrg === 'All Organizations' && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-slate-400">Affiliated Organization *</label>
+                    <select
+                      required
+                      value={formOrg}
+                      onChange={(e) => setFormOrg(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      <option value="" disabled>Select Tenant Organization</option>
+                      {orgsList.map((orgName) => (
+                        <option key={orgName} value={orgName}>
+                          {orgName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1 relative" ref={studentDropdownRef}>
                     <label className="text-[10px] uppercase font-bold text-slate-400">Student Name</label>

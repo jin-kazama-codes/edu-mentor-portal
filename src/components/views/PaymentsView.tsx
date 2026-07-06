@@ -50,6 +50,61 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
   const [formPlan, setFormPlan] = useState<'Monthly Pro' | 'Annual Elite' | 'Quarterly Basic' | 'One-Time Session'>('Monthly Pro');
   const [orgStudents, setOrgStudents] = useState<{ id: string, name: string }[]>([]);
 
+  const [orgsList, setOrgsList] = useState<string[]>([]);
+  const [formOrg, setFormOrg] = useState('');
+
+  useEffect(() => {
+    async function loadOrgs() {
+      const { data, error } = await supabase.from('organizations').select('name').order('name');
+      if (!error && data) {
+        setOrgsList(data.map((o: any) => o.name));
+      }
+    }
+    loadOrgs();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrg && selectedOrg !== 'All Organizations') {
+      setFormOrg(selectedOrg);
+    } else {
+      setFormOrg('');
+    }
+  }, [selectedOrg, showGenerateModal]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'Student') return;
+    async function loadFormStudents() {
+      const orgToFilterForm = currentUser.role === 'Super Admin'
+        ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
+        : currentUser.organization;
+
+      if (!orgToFilterForm) {
+        setOrgStudents([]);
+        setFormStudent('');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('students')
+        .select('id, name')
+        .eq('organization', orgToFilterForm)
+        .order('name');
+
+      if (!error && data) {
+        setOrgStudents(data);
+        if (data.length > 0) {
+          setFormStudent(data[0].name);
+        } else {
+          setFormStudent('');
+        }
+      } else {
+        setOrgStudents([]);
+        setFormStudent('');
+      }
+    }
+    loadFormStudents();
+  }, [currentUser, selectedOrg, formOrg]);
+
   const itemsPerPage = 8;
 
   const canRead = hasPermission('Financial Transactions', 'read') || currentUser?.role === 'Student';
@@ -88,17 +143,7 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
         }
       }
 
-      // Load org students for the modal dropdown
-      if (currentUser.role !== 'Student') {
-        let stuQuery = supabase.from('students').select('id, name').order('name', { ascending: true });
-        if (orgToFilter) {
-          stuQuery = stuQuery.eq('organization', orgToFilter);
-        }
-        const { data: stuData } = await stuQuery;
-        if (stuData) {
-          setOrgStudents(stuData);
-        }
-      }
+      // Loader of students shifted to dedicated useEffect below
     }
     loadData();
   }, [currentUser, canRead, selectedOrg]);
@@ -195,8 +240,13 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
     }
 
     const resolvedOrg = currentUser.role === 'Super Admin'
-      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
       : currentUser.organization;
+
+    if (!resolvedOrg) {
+      alert('Please select an organization');
+      return;
+    }
 
     const newPayment: Payment = {
       id: `inv-${Date.now().toString().slice(-6)}`,
@@ -308,6 +358,25 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
 
               <form onSubmit={handleGenerateSubmit}>
                 <div className="p-5 space-y-4">
+                  {currentUser?.role === 'Super Admin' && selectedOrg === 'All Organizations' && (
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Affiliated Organization *</label>
+                      <select
+                        required
+                        value={formOrg}
+                        onChange={(e) => setFormOrg(e.target.value)}
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                      >
+                        <option value="" disabled>Select Tenant Organization</option>
+                        {orgsList.map((orgName) => (
+                          <option key={orgName} value={orgName}>
+                            {orgName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Student Name</label>
                     <select

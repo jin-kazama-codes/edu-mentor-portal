@@ -134,24 +134,57 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
 
   // Mentors from the same organization (for the Assigned Mentor dropdown)
   const [orgMentors, setOrgMentors] = useState<{ id: string; name: string }[]>([]);
+  const [orgsList, setOrgsList] = useState<string[]>([]);
+  const [formOrg, setFormOrg] = useState('');
+
+  useEffect(() => {
+    async function loadOrgs() {
+      const { data, error } = await supabase.from('organizations').select('name').order('name');
+      if (!error && data) {
+        setOrgsList(data.map((o: any) => o.name));
+      }
+    }
+    loadOrgs();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrg && selectedOrg !== 'All Organizations') {
+      setFormOrg(selectedOrg);
+    } else {
+      setFormOrg('');
+    }
+  }, [selectedOrg]);
 
   useEffect(() => {
     if (!currentUser) return;
     async function loadOrgMentors() {
       const orgToFilter = currentUser.role === 'Super Admin'
-        ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
+        ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
         : currentUser.organization;
+
+      if (!orgToFilter) {
+        setOrgMentors([]);
+        setFormMentor('');
+        return;
+      }
+
       let q = supabase.from('mentors').select('id, name').order('name');
-      if (orgToFilter) q = q.eq('organization', orgToFilter);
+      q = q.eq('organization', orgToFilter);
       const { data: mnts } = await q;
       if (mnts) {
         setOrgMentors(mnts);
-        // Auto-select first mentor when form is blank
-        if (mnts.length > 0) setFormMentor((prev) => prev || mnts[0].name);
+        if (mnts.length > 0) {
+          setFormMentor(mnts[0].name);
+        } else {
+          setFormMentor('');
+        }
+      } else {
+        setOrgMentors([]);
+        setFormMentor('');
       }
     }
     loadOrgMentors();
-  }, [currentUser, selectedOrg]);
+  }, [currentUser, selectedOrg, formOrg]);
 
   // Form states for creating a new student
   const todayFormatted = () => {
@@ -198,8 +231,13 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
     }
 
     const resolvedOrg = currentUser.role === 'Super Admin'
-      ? (selectedOrg === 'All Organizations' ? 'Bright Future Academy' : selectedOrg)
+      ? (selectedOrg === 'All Organizations' ? formOrg : selectedOrg)
       : currentUser.organization;
+
+    if (!resolvedOrg) {
+      alert('Please select an organization');
+      return;
+    }
     const orgDomain = resolvedOrg.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '') + '.com';
     // Use user-provided email or auto-generate one as fallback
     const email = formEmail.trim() || `${formName.toLowerCase().trim().replace(/\s+/g, '.')}@${orgDomain}`;
@@ -813,6 +851,25 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
                         />
                       </div>
                     </div>
+
+                    {currentUser?.role === 'Super Admin' && selectedOrg === 'All Organizations' && (
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Affiliated Organization</label>
+                        <select
+                          required
+                          value={formOrg}
+                          onChange={(e) => setFormOrg(e.target.value)}
+                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        >
+                          <option value="" disabled>Select Tenant Organization</option>
+                          {orgsList.map((orgName) => (
+                            <option key={orgName} value={orgName}>
+                              {orgName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* ── Name & Age ── */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
