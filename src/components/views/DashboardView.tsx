@@ -26,6 +26,7 @@ import { reportsAnalytics as fallbackAnalytics, sessions as fallbackSessions } f
 import { supabase } from '../../lib/supabase';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/auth';
+import { isMeetingLinkActive } from '../../utils/dateUtils';
 
 interface DashboardViewProps {
   onNavigate: (tab: string) => void;
@@ -53,6 +54,7 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
   const [studentGrowth, setStudentGrowth] = useState<any[]>([]);
   const [mentorActivity, setMentorActivity] = useState<any[]>([]);
   const [studentMentor, setStudentMentor] = useState<any>(null);
+  const [studentDetails, setStudentDetails] = useState<any>(null);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -111,8 +113,8 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
         sessTodayQuery = sessTodayQuery.eq('mentor', currentUser.mentorName);
         sessUpcomingQuery = sessUpcomingQuery.eq('mentor', currentUser.mentorName);
       } else if (currentUser.role === 'Student') {
-        sessTodayQuery = sessTodayQuery.eq('student', currentUser.name);
-        sessUpcomingQuery = sessUpcomingQuery.eq('student', currentUser.name);
+        sessTodayQuery = sessTodayQuery.ilike('student', `%${currentUser.name}%`);
+        sessUpcomingQuery = sessUpcomingQuery.ilike('student', `%${currentUser.name}%`);
       }
       const { count: sessToday } = await sessTodayQuery;
       const { count: upcomingSess } = await sessUpcomingQuery;
@@ -268,7 +270,7 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
         // Filter by linked mentor; if no mentor linked, org filter already scopes sessions
         upcomingSessQuery = upcomingSessQuery.eq('mentor', currentUser.mentorName);
       } else if (currentUser.role === 'Student') {
-        upcomingSessQuery = upcomingSessQuery.eq('student', currentUser.name);
+        upcomingSessQuery = upcomingSessQuery.ilike('student', `%${currentUser.name}%`);
       }
       const { data: todaySess } = await upcomingSessQuery.order('date', { ascending: false }).limit(4);
       if (todaySess) {
@@ -290,21 +292,24 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
       const { data: ma } = await maQuery.order('id');
       if (ma) setMentorActivity(ma);
 
-      // 5. Fetch student mentor details if student
+      // 5. Fetch student mentor and profile details if student
       if (currentUser.role === 'Student') {
         const { data: studentProfile } = await supabase
           .from('students')
-          .select('mentor')
+          .select('*')
           .eq('email', currentUser.email)
           .maybeSingle();
-        if (studentProfile && studentProfile.mentor) {
-          const { data: mentorRec } = await supabase
-            .from('mentors')
-            .select('*')
-            .eq('name', studentProfile.mentor)
-            .maybeSingle();
-          if (mentorRec) {
-            setStudentMentor(mentorRec);
+        if (studentProfile) {
+          setStudentDetails(studentProfile);
+          if (studentProfile.mentor) {
+            const { data: mentorRec } = await supabase
+              .from('mentors')
+              .select('*')
+              .eq('name', studentProfile.mentor)
+              .maybeSingle();
+            if (mentorRec) {
+              setStudentMentor(mentorRec);
+            }
           }
         }
       }
@@ -440,121 +445,216 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
 
         {/* Student Content Panels */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Panel: Today's scheduled sessions (7 columns) */}
-          <div className="lg:col-span-7 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-50 dark:border-slate-700/50 pb-3.5 mb-4">
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-white text-sm">My Upcoming Tuition Classes</h3>
-                <p className="text-[10px] text-slate-400 dark:text-slate-400 mt-0.5">Synchronized learning and revision sessions</p>
+          {/* Left Panel: Profile Details & Progress (7 columns) */}
+          <div className="lg:col-span-7 space-y-6">
+            {/* Student Details Card */}
+            <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+              <div className="border-b border-slate-50 dark:border-slate-700/50 pb-3 mb-4">
+                <h3 className="font-bold text-slate-800 dark:text-white text-sm">My Personal & Enrollment Details</h3>
+                <p className="text-[10px] text-slate-400 dark:text-slate-400 mt-0.5">Verified profile details from the student registry</p>
               </div>
-              <button
-                onClick={() => onNavigate('calendar')}
-                className="text-[10px] font-semibold text-teal-500 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <span>Full Calendar View</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+
+              {studentDetails ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100/50 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-505 font-semibold block uppercase">Grade level</span>
+                    <span className="font-bold text-slate-800 dark:text-white mt-0.5 block">{studentDetails.grade}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100/50 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-505 font-semibold block uppercase">Age</span>
+                    <span className="font-bold text-slate-800 dark:text-white mt-0.5 block">{studentDetails.age} Years Old</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100/50 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-505 font-semibold block uppercase">Phone Number</span>
+                    <span className="font-bold text-slate-800 dark:text-white mt-0.5 block">{studentDetails.phone || 'Not Specified'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100/50 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-505 font-semibold block uppercase">Gender</span>
+                    <span className="font-bold text-slate-800 dark:text-white mt-0.5 block">{studentDetails.gender || 'Not Specified'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100/50 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-505 font-semibold block uppercase">Primary Guardian</span>
+                    <span className="font-bold text-slate-800 dark:text-white mt-0.5 block">{studentDetails.guardian}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100/50 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-505 font-semibold block uppercase">Enrollment Status</span>
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full inline-block mt-1 ${
+                      studentDetails.status === 'Active'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400'
+                        : 'bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
+                    }`}>{studentDetails.status}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-6 text-xs text-slate-400">Loading student registry details...</div>
+              )}
             </div>
 
-            <div className="space-y-3">
-              {todaySessions.length > 0 ? (
-                todaySessions.map((sess) => (
-                  <div
-                    key={sess.id}
-                    className="p-3 bg-slate-50 dark:bg-slate-750/50 rounded-xl hover:bg-slate-100/60 dark:hover:bg-slate-700/50 transition-colors flex items-center justify-between border border-slate-100 dark:border-slate-850"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex flex-col items-center justify-center w-11 h-11 rounded-lg bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm text-center">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase">July</span>
-                        <span className="text-xs font-black text-slate-700 dark:text-white mt-0.5">{sess.date.split('-')[2] || '03'}</span>
-                      </div>
-                      <div>
-                        <h5 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                          <span>{sess.category} Session</span>
-                          <span className="text-[9px] font-medium bg-teal-500/10 text-teal-600 px-1.5 py-0.25 rounded">
-                            {sess.duration}
-                          </span>
-                        </h5>
-                        <p className="text-[10px] text-slate-400 mt-0.5">Mentor: {sess.mentor} • {sess.time}</p>
-                      </div>
+            {/* Progress & Attendance Card */}
+            <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-5">
+              <div className="border-b border-slate-50 dark:border-slate-700/50 pb-3">
+                <h3 className="font-bold text-slate-800 dark:text-white text-sm">Course Progress &amp; Attendance</h3>
+                <p className="text-[10px] text-slate-400 dark:text-slate-400 mt-0.5">Live academic statistics</p>
+              </div>
+
+              {studentDetails ? (
+                <div className="space-y-4 text-xs">
+                  {/* Progress bar */}
+                  <div>
+                    <div className="flex justify-between font-semibold mb-1.5">
+                      <span className="text-slate-500 dark:text-slate-400">Learning Progress</span>
+                      <span className="text-blue-600 dark:text-blue-400 font-bold">{studentDetails.progress}% Complete</span>
                     </div>
-                    <div className="text-right">
-                      <a
-                        href={sess.meetingLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[10px] text-blue-500 font-semibold bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-md hover:underline cursor-pointer inline-block"
-                      >
-                        Join Meet
-                      </a>
+                    <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-750 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full animate-pulse" style={{ width: `${studentDetails.progress}%` }} />
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-xs text-slate-400 dark:text-slate-500">
-                  No upcoming classes scheduled. Contact your administrator or mentor to schedule one.
+
+                  {/* Attendance bar */}
+                  <div>
+                    <div className="flex justify-between font-semibold mb-1.5">
+                      <span className="text-slate-500 dark:text-slate-400">Attendance Rate</span>
+                      <span className="text-teal-600 dark:text-teal-400 font-bold">{studentDetails.attendance}% Attendance</span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-750 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full animate-pulse" style={{ width: `${studentDetails.attendance}%` }} />
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                <div className="text-center py-6 text-xs text-slate-400">Loading progress indicators...</div>
               )}
             </div>
           </div>
 
-          {/* Right Panel: Mentor Details Card (5 columns) */}
-          <div className="lg:col-span-5 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-            <div className="border-b border-slate-50 dark:border-slate-700/50 pb-3 mb-4">
-              <h3 className="font-bold text-slate-800 dark:text-white text-sm">Assigned Mentor Faculty</h3>
-              <p className="text-[10px] text-slate-400 dark:text-slate-400 mt-0.5">Primary mentor assigned for active tracking</p>
-            </div>
-
-            {studentMentor ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-750/30 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                  {studentMentor.avatar ? (
-                    <img
-                      src={studentMentor.avatar}
-                      alt={studentMentor.name}
-                      className="w-12 h-12 rounded-xl object-cover ring-2 ring-slate-100 dark:ring-slate-800 shrink-0"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 font-extrabold text-base select-none shrink-0 ring-2 ring-slate-100 dark:ring-slate-800">
-                      {studentMentor.name.trim().charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800 dark:text-white">{studentMentor.name}</h4>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{studentMentor.email}</p>
-                    <span className="text-[9px] font-semibold text-teal-600 bg-teal-500/10 px-1.5 py-0.25 rounded-md inline-block mt-1">
-                      {studentMentor.experience} Experience
-                    </span>
-                  </div>
+          {/* Right Panel: Upcoming Sessions & Mentor (5 columns) */}
+          <div className="lg:col-span-5 space-y-6">
+            {/* My Upcoming Tuition Classes */}
+            <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+              <div className="flex items-center justify-between border-b border-slate-50 dark:border-slate-700/50 pb-3.5 mb-4">
+                <div>
+                  <h3 className="font-bold text-slate-800 dark:text-white text-sm">My Upcoming Tuition Classes</h3>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-400 mt-0.5">Synchronized learning and revision sessions</p>
                 </div>
-
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1.5 border-b border-slate-50 dark:border-slate-700/55">
-                    <span className="text-slate-400">Tuition Specialities</span>
-                    <span className="font-semibold text-slate-700 dark:text-slate-200">{studentMentor.subjects.join(', ')}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-50 dark:border-slate-700/55">
-                    <span className="text-slate-400">Tutor Rating</span>
-                    <span className="font-semibold text-yellow-500 font-mono">★ {studentMentor.rating}</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 border-b border-slate-50 dark:border-slate-700/55">
-                    <span className="text-slate-400">Weekly Availability</span>
-                    <span className="font-semibold text-slate-700 dark:text-slate-200">{studentMentor.availability}</span>
-                  </div>
-                </div>
-
                 <button
-                  onClick={() => onNavigate('messaging')}
-                  className="w-full py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-750 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                  onClick={() => onNavigate('calendar')}
+                  className="text-[10px] font-semibold text-teal-500 hover:underline flex items-center gap-1 cursor-pointer"
                 >
-                  Initiate Chat Session
+                  <span>Full Calendar</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
-            ) : (
-              <div className="text-center py-10 text-xs text-slate-400 dark:text-slate-500">
-                Mentor details not synced. Contact your organization administrator.
+
+              <div className="space-y-3">
+                {todaySessions.length > 0 ? (
+                  todaySessions.map((sess) => (
+                    <div
+                      key={sess.id}
+                      className="p-3 bg-slate-50 dark:bg-slate-750/50 rounded-xl hover:bg-slate-100/60 dark:hover:bg-slate-700/50 transition-colors flex items-center justify-between border border-slate-100 dark:border-slate-850"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-center justify-center w-11 h-11 rounded-lg bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm text-center">
+                          <span className="text-[8px] font-bold text-slate-400 uppercase">July</span>
+                          <span className="text-xs font-black text-slate-700 dark:text-white mt-0.5">{sess.date.split('-')[2] || '03'}</span>
+                        </div>
+                        <div>
+                          <h5 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                            <span>{sess.category} Session</span>
+                            <span className="text-[9px] font-medium bg-teal-500/10 text-teal-600 px-1.5 py-0.25 rounded">
+                              {sess.duration}
+                            </span>
+                          </h5>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Mentor: {sess.mentor} • {sess.time}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {currentUser?.role === 'Student' && !isMeetingLinkActive(sess.date, sess.time) ? (
+                          <button
+                            disabled
+                            className="px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-450 dark:text-slate-500 rounded-md text-[10px] font-bold cursor-not-allowed inline-block"
+                            title="Classroom link activates 10 minutes before the scheduled class start time."
+                          >
+                            Link Pending
+                          </button>
+                        ) : (
+                          <a
+                            href={sess.meetingLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[10px] text-blue-500 font-semibold bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-md hover:underline cursor-pointer inline-block"
+                          >
+                            Join Meet
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-xs text-slate-400 dark:text-slate-500">
+                    No upcoming classes scheduled. Contact your administrator or mentor to schedule one.
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+
+            {/* Assigned Mentor Card */}
+            <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+              <div className="border-b border-slate-50 dark:border-slate-700/50 pb-3 mb-4">
+                <h3 className="font-bold text-slate-800 dark:text-white text-sm">Assigned Mentor Faculty</h3>
+                <p className="text-[10px] text-slate-400 dark:text-slate-400 mt-0.5">Primary mentor assigned for active tracking</p>
+              </div>
+
+              {studentMentor ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-750/30 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                    {studentMentor.avatar ? (
+                      <img
+                        src={studentMentor.avatar}
+                        alt={studentMentor.name}
+                        className="w-12 h-12 rounded-xl object-cover ring-2 ring-slate-100 dark:ring-slate-800 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 font-extrabold text-base select-none shrink-0 ring-2 ring-slate-100 dark:ring-slate-800">
+                        {studentMentor.name.trim().charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-white">{studentMentor.name}</h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{studentMentor.email}</p>
+                      <span className="text-[9px] font-semibold text-teal-600 bg-teal-500/10 px-1.5 py-0.25 rounded-md inline-block mt-1">
+                        {studentMentor.experience} Experience
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between py-1.5 border-b border-slate-50 dark:border-slate-700/55">
+                      <span className="text-slate-400">Tuition Specialities</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">{studentMentor.subjects.join(', ')}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-50 dark:border-slate-700/55">
+                      <span className="text-slate-400">Tutor Rating</span>
+                      <span className="font-semibold text-yellow-500 font-mono">★ {studentMentor.rating}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-slate-50 dark:border-slate-700/55">
+                      <span className="text-slate-400">Weekly Availability</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">{studentMentor.availability}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => onNavigate('messaging')}
+                    className="w-full py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-750 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Initiate Chat Session
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center py-10 text-xs text-slate-400 dark:text-slate-500">
+                  Mentor details not synced. Contact your organization administrator.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

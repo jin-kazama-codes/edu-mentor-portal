@@ -42,8 +42,44 @@ export default function AssignmentView({ selectedOrg = 'All Organizations' }: As
   const [unassigned, setUnassigned] = useState<UnassignedStudent[]>([]);
   const [mentors, setMentors] = useState<any[]>([]);
 
+  // Student specific assignment states
+  const [curriculumAssignments, setCurriculumAssignments] = useState<any[]>([]);
+  const [sessionHomeworks, setSessionHomeworks] = useState<any[]>([]);
+  const [activeSubTab, setActiveSubTab] = useState<'materials' | 'homework'>('materials');
+  const [isLoadingStudent, setIsLoadingStudent] = useState<boolean>(false);
+
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.role !== 'Student') return;
+    async function loadStudentAssignments() {
+      setIsLoadingStudent(true);
+      // Fetch curriculum worksheets/assignments
+      const { data: resData } = await supabase
+        .from('content_resources')
+        .select('*')
+        .eq('type', 'Assignment')
+        .or(`organization.eq.Global,organization.eq.${currentUser.organization}`);
+      if (resData) {
+        setCurriculumAssignments(resData);
+      }
+
+      // Fetch sessions to extract homework
+      const { data: sessData } = await supabase
+        .from('sessions')
+        .select('*')
+        .ilike('student', `%${currentUser.name}%`)
+        .order('date', { ascending: false });
+      if (sessData) {
+        // Only keep sessions that have homework
+        const homeworkSesses = sessData.filter(s => s.homework && s.homework.trim().length > 0);
+        setSessionHomeworks(homeworkSesses);
+      }
+      setIsLoadingStudent(false);
+    }
+    loadStudentAssignments();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'Student') return;
     async function loadData() {
       const orgToFilter = currentUser.role === 'Super Admin'
         ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
@@ -159,6 +195,138 @@ export default function AssignmentView({ selectedOrg = 'All Organizations' }: As
   const handleForceAssignment = (mentorId: string) => {
     executeAssignment(mentorId);
   };
+
+  if (currentUser?.role === 'Student') {
+    return (
+      <div className="space-y-6 font-sans">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tight">My Assignments &amp; Homework</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Access worksheets, download practice question papers, and track homework assigned during classes</p>
+          </div>
+
+          {/* Sub-tab selection */}
+          <div className="bg-slate-100 dark:bg-slate-900 p-1 rounded-xl flex self-start sm:self-auto">
+            <button
+              onClick={() => setActiveSubTab('materials')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                activeSubTab === 'materials'
+                  ? 'bg-white dark:bg-slate-850 text-slate-800 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-750 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Curriculum Materials ({curriculumAssignments.length})
+            </button>
+            <button
+              onClick={() => setActiveSubTab('homework')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                activeSubTab === 'homework'
+                  ? 'bg-white dark:bg-slate-850 text-slate-800 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-750 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              Class Homework Tasks ({sessionHomeworks.length})
+            </button>
+          </div>
+        </div>
+
+        {/* Loading Indicator */}
+        {isLoadingStudent ? (
+          <div className="min-h-[250px] flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        ) : activeSubTab === 'materials' ? (
+          /* Sub-tab 1: Curriculum Material / Worksheets */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {curriculumAssignments.map((res) => (
+              <div key={res.id} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col justify-between group">
+                <div className="relative h-32 bg-slate-100 dark:bg-slate-900 overflow-hidden">
+                  <img
+                    src={res.thumbnail || 'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=300'}
+                    alt={res.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-blue-600/90 text-white font-bold text-[9px] uppercase tracking-wider">
+                    {res.category}
+                  </div>
+                </div>
+                <div className="p-4 flex-1 flex flex-col justify-between">
+                  <div className="space-y-1.5">
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-white group-hover:text-blue-500 transition-colors leading-snug line-clamp-2">
+                      {res.title}
+                    </h4>
+                    <p className="text-[10px] text-slate-400">Author: {res.author} · Format: {res.type}</p>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-50 dark:border-slate-750 flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400 font-mono">{res.size}</span>
+                    <a
+                      href="#"
+                      onClick={(e) => { e.preventDefault(); alert('Downloading assignment file...'); }}
+                      className="px-2.5 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-md text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                    >
+                      Download PDF
+                    </a>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {curriculumAssignments.length === 0 && (
+              <div className="col-span-full py-16 text-center text-slate-400">No learning worksheets found.</div>
+            )}
+          </div>
+        ) : (
+          /* Sub-tab 2: Class Homework Tasks */
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-850 text-slate-400 uppercase text-[9px] font-bold tracking-wider">
+                    <th className="p-4">Assigned Date</th>
+                    <th className="p-4">Mentor Name</th>
+                    <th className="p-4">Class Category</th>
+                    <th className="p-4">Homework Details</th>
+                    <th className="p-4 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-850 font-medium">
+                  {sessionHomeworks.map((sess) => (
+                    <tr key={sess.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-750/30 transition-colors text-slate-700 dark:text-slate-350">
+                      <td className="p-4 whitespace-nowrap font-mono text-[10px] text-slate-400">
+                        {new Date(sess.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td className="p-4 whitespace-nowrap text-slate-800 dark:text-white font-bold">{sess.mentor}</td>
+                      <td className="p-4 whitespace-nowrap">
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                          {sess.category}
+                        </span>
+                      </td>
+                      <td className="p-4 text-slate-500 dark:text-slate-400 max-w-sm font-normal leading-normal py-3.5">
+                        {sess.homework}
+                      </td>
+                      <td className="p-4 text-right whitespace-nowrap">
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                          sess.status === 'Completed'
+                            ? 'bg-green-50 text-green-600 dark:bg-green-950/20 dark:text-green-400'
+                            : 'bg-amber-50 text-amber-600 dark:bg-amber-950/20 dark:text-amber-400'
+                        }`}>
+                          {sess.status === 'Completed' ? 'Submitted / Completed' : 'Pending Action'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {sessionHomeworks.length === 0 && (
+                <div className="py-16 text-center text-slate-400">No active homework tasks assigned from your classes.</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

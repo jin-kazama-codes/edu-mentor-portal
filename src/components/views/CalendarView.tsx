@@ -31,6 +31,7 @@ import { Session } from '../../types';
 import { supabase } from '../../lib/supabase';
 
 import { useAuth } from '../../lib/auth';
+import { isMeetingLinkActive } from '../../utils/dateUtils';
 
 interface CalendarViewProps {
   defaultBookOpen?: boolean;
@@ -42,6 +43,19 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
   const [view, setView] = useState<'weekly' | 'monthly'>('weekly');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+
+  // Compute the Monday of the currently-displayed week (offset in weeks from today)
+  const [weekOffset, setWeekOffset] = useState(0);
+  const getWeekMonday = (offset: number): Date => {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon, ...
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + diffToMonday + offset * 7);
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  };
+  const currentWeekMonday = getWeekMonday(weekOffset);
   const [sessionsList, setSessionsList] = useState<Session[]>([]);
 
   useEffect(() => {
@@ -73,7 +87,7 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
         }
         if (mentorName) query = query.eq('mentor', mentorName);
       } else if (currentUser.role === 'Student') {
-        query = query.eq('student', currentUser.name);
+        query = query.ilike('student', `%${currentUser.name}%`);
       }
 
       const { data: sess, error } = await query;
@@ -93,7 +107,7 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
   // Form State
   const [bookStudent, setBookStudent] = useState('');
   const [bookMentor, setBookMentor] = useState('');
-  const [bookDate, setBookDate] = useState('2026-07-02');
+  const [bookDate, setBookDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [bookTime, setBookTime] = useState('04:00 PM - 05:00 PM');
   const [bookCategory, setBookCategory] = useState<Session['category']>('Academic');
   const [bookDuration, setBookDuration] = useState('60 mins');
@@ -255,7 +269,7 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
     setSelectedStudents([]);
     setBookStudent('');
     setBookMentor('');
-    setBookDate('2026-07-02');
+    setBookDate(new Date().toISOString().split('T')[0]);
     setBookTime('04:00 PM - 05:00 PM');
     setBookCategory('Academic');
     setBookDuration('60 mins');
@@ -280,16 +294,20 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
     mnt.name.toLowerCase().includes(mentorSearch.toLowerCase())
   );
 
-  // Week days hardcoded sample
-  const weekDays = [
-    { name: 'Monday', label: 'Mon', date: 'June 29' },
-    { name: 'Tuesday', label: 'Tue', date: 'June 30' },
-    { name: 'Wednesday', label: 'Wed', date: 'July 1' },
-    { name: 'Thursday', label: 'Thu', date: 'July 2' },
-    { name: 'Friday', label: 'Fri', date: 'July 3' },
-    { name: 'Saturday', label: 'Sat', date: 'July 4' },
-    { name: 'Sunday', label: 'Sun', date: 'July 5' }
-  ];
+  // Week days: computed dynamically from the Monday of the current/offset week
+  const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const DAY_NAMES  = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const weekDays = DAY_LABELS.map((label, i) => {
+    const d = new Date(currentWeekMonday);
+    d.setDate(currentWeekMonday.getDate() + i);
+    const displayDate = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    return { name: DAY_NAMES[i], label, date: displayDate, fullDate: d };
+  });
+
+  // Formatted header range label: "July 6 - July 12, 2026"
+  const weekEndDate = new Date(currentWeekMonday);
+  weekEndDate.setDate(currentWeekMonday.getDate() + 6);
+  const rangeLabel = `${currentWeekMonday.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${weekEndDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
 
   // Helper: map index to colors
   const getCategoryColor = (cat: Session['category']) => {
@@ -349,11 +367,17 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
         {/* Navigation buttons */}
         <div className="flex items-center gap-2">
-          <button className="p-1.5 border border-slate-200 dark:border-slate-750 rounded-lg hover:bg-slate-150">
+          <button
+            onClick={() => setWeekOffset(prev => prev - 1)}
+            className="p-1.5 border border-slate-200 dark:border-slate-750 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+          >
             <ChevronLeft className="w-4 h-4 text-slate-500" />
           </button>
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">June 29 - July 05, 2026</span>
-          <button className="p-1.5 border border-slate-200 dark:border-slate-750 rounded-lg hover:bg-slate-150">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{rangeLabel}</span>
+          <button
+            onClick={() => setWeekOffset(prev => prev + 1)}
+            className="p-1.5 border border-slate-200 dark:border-slate-750 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+          >
             <ChevronRight className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -382,20 +406,28 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
       {/* Weekly Schedule Layout (Default) */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-7 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
-          {weekDays.map((day, dIdx) => {
-            // Find sessions happening on this date (dates correspond to June 29 (day 29) to July 5 (day 5))
-            const dayNum = 29 + dIdx > 30 ? (29 + dIdx) - 30 : 29 + dIdx;
-            const monthStr = dIdx < 2 ? '06' : '07';
-            const formattedDateStr = `2026-${monthStr}-${dayNum < 10 ? '0' + dayNum : dayNum}`;
+          {weekDays.map((day) => {
+            // Compute ISO date string (yyyy-mm-dd) for this day to match session records
+            const fd = day.fullDate;
+            const yr = fd.getFullYear();
+            const mo = String(fd.getMonth() + 1).padStart(2, '0');
+            const dt = String(fd.getDate()).padStart(2, '0');
+            const formattedDateStr = `${yr}-${mo}-${dt}`;
+
+            // Highlight today
+            const todayStr = new Date().toISOString().split('T')[0];
+            const isToday = formattedDateStr === todayStr;
 
             const daySessions = filteredSessions.filter((s) => s.date === formattedDateStr);
 
             return (
               <div key={day.name} className="min-h-[220px] md:min-h-[480px] flex flex-col">
                 {/* Day Header */}
-                <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 text-center flex md:flex-col justify-between md:justify-center items-center gap-1 shrink-0">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{day.label}</span>
-                  <span className="text-xs font-black text-slate-700 dark:text-white">{day.date}</span>
+                <div className={`p-3 border-b border-slate-100 dark:border-slate-800 text-center flex md:flex-col justify-between md:justify-center items-center gap-1 shrink-0 ${isToday ? 'bg-blue-50 dark:bg-blue-950/20' : 'bg-slate-50/50 dark:bg-slate-900/30'}`}>
+                  <span className={`text-[10px] uppercase font-bold tracking-wider ${isToday ? 'text-blue-500' : 'text-slate-400'}`}>{day.label}</span>
+                  <span className={`text-xs font-black ${isToday ? 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 rounded-full w-6 h-6 flex items-center justify-center mx-auto text-[10px]' : 'text-slate-700 dark:text-white'}`}>
+                    {fd.getDate()}
+                  </span>
                 </div>
 
                 {/* Day Sessions List */}
@@ -510,18 +542,37 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
                   <div className="flex gap-2 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-750/40 rounded-xl items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0">
                       <Video className="w-4 h-4 text-blue-500 shrink-0" />
-                      <span className="font-mono text-[11px] truncate text-slate-500 dark:text-slate-400">{selectedSession.meetingLink}</span>
+                      <span className="font-mono text-[11px] truncate text-slate-500 dark:text-slate-400">
+                        {currentUser?.role === 'Student' && !isMeetingLinkActive(selectedSession.date, selectedSession.time)
+                          ? '••••••••••••••••••••••••'
+                          : selectedSession.meetingLink}
+                      </span>
                     </div>
-                    <a
-                      href={selectedSession.meetingLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2.5 py-1 bg-blue-600 text-white rounded-md text-[10px] font-bold flex items-center gap-1 hover:bg-blue-700 shrink-0"
-                    >
-                      <span>Join Class</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
+                    {currentUser?.role === 'Student' && !isMeetingLinkActive(selectedSession.date, selectedSession.time) ? (
+                      <button
+                        disabled
+                        className="px-2.5 py-1 bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 rounded-md text-[10px] font-bold cursor-not-allowed shrink-0"
+                        title="Classroom link activates 10 minutes before the scheduled class start time."
+                      >
+                        Link Pending
+                      </button>
+                    ) : (
+                      <a
+                        href={selectedSession.meetingLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1 bg-blue-600 text-white rounded-md text-[10px] font-bold flex items-center gap-1 hover:bg-blue-700 shrink-0"
+                      >
+                        <span>Join Class</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
                   </div>
+                  {currentUser?.role === 'Student' && !isMeetingLinkActive(selectedSession.date, selectedSession.time) && (
+                    <p className="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-500/5 px-2.5 py-1.5 rounded-lg border border-amber-500/10 flex items-center gap-1.5 mt-1.5">
+                      <span>⚠️ Classroom link will be active just 10 minutes before the scheduled meeting start time.</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Attendance & Homework */}

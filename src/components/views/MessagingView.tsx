@@ -95,6 +95,7 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
   const [notification, setNotification] = useState<{ sender: string; text: string } | null>(null);
   const [adminNames, setAdminNames] = useState<string[]>(['f2fintech', 'codevamo', 'mahin bhat']);
   const [orgUsers, setOrgUsers] = useState<any[]>([]);
+  const [studentRegistryList, setStudentRegistryList] = useState<any[]>([]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -134,6 +135,7 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
           const orgAdmins = fetchedUsers.filter(u => u.role === 'Organization Admin');
           const mentors = fetchedUsers.filter(u => u.role === 'Mentor');
           const assistants = fetchedUsers.filter(u => u.role === 'Assistant');
+          const students = fetchedUsers.filter(u => u.role === 'Student');
           
           const channelsToCreate: any[] = [];
           const existingIds = new Set(data.map(c => c.id));
@@ -181,6 +183,42 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
             });
           });
 
+          // 4. Student <-> Org Admin of same organization
+          students.forEach(std => {
+            orgAdmins.filter(admin => admin.organization === std.organization).forEach(admin => {
+              registerChannelNeeded(std.organization, admin.name, std.name);
+            });
+          });
+
+          // 5. Student <-> Assigned Mentor and Mentor's Assistants
+          let studentsRegistryQuery = supabase.from('students').select('name, email, mentor, organization');
+          if (orgToFilter) {
+            studentsRegistryQuery = studentsRegistryQuery.eq('organization', orgToFilter);
+          }
+          const { data: studentsRegistry } = await studentsRegistryQuery;
+          if (studentsRegistry) {
+            setStudentRegistryList(studentsRegistry);
+            studentsRegistry.forEach(registryItem => {
+              const stdName = registryItem.name;
+              const chOrg = registryItem.organization;
+              const mentorName = registryItem.mentor;
+              
+              if (mentorName) {
+                // Register Student <-> Mentor
+                const mentorUser = mentors.find(m => m.name.toLowerCase().trim() === mentorName.toLowerCase().trim() && m.organization === chOrg);
+                if (mentorUser) {
+                  registerChannelNeeded(chOrg, mentorUser.name, stdName);
+                  
+                  // Register Student <-> Mentor's Assistants
+                  const mentorAssistants = assistants.filter(a => a.mentor_id === mentorUser.id);
+                  mentorAssistants.forEach(asst => {
+                    registerChannelNeeded(chOrg, asst.name, stdName);
+                  });
+                }
+              }
+            });
+          }
+
           if (channelsToCreate.length > 0) {
             const { error: insertErr } = await supabase.from('chat_channels').insert(channelsToCreate);
             if (!insertErr) {
@@ -216,40 +254,105 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
             // Org Admin <-> Assistants
             assistants.filter(a => a.organization === myOrg).forEach(a => {
               allowedIds.add(getDirectChannelId(myOrg, currentUser.name, a.name));
+              registerChannelNeeded(myOrg, currentUser.name, a.name);
             });
             // Org Admin <-> Super Admins
             superAdmins.forEach(sa => {
               allowedIds.add(getDirectChannelId(myOrg, sa.name, currentUser.name));
+              registerChannelNeeded(myOrg, sa.name, currentUser.name);
+            });
+            // Org Admin <-> Students
+            students.filter(s => s.organization === myOrg).forEach(std => {
+              allowedIds.add(getDirectChannelId(myOrg, currentUser.name, std.name));
+              registerChannelNeeded(myOrg, currentUser.name, std.name);
             });
           } else if (currentUser.role === 'Mentor') {
             const myOrg = currentUser.organization;
             // Mentor <-> Org Admins
             orgAdmins.filter(a => a.organization === myOrg).forEach(admin => {
               allowedIds.add(getDirectChannelId(myOrg, admin.name, currentUser.name));
+              registerChannelNeeded(myOrg, admin.name, currentUser.name);
             });
             // Mentor <-> My Assistants
             assistants.filter(a => a.mentor_id === currentUser.id).forEach(asst => {
               allowedIds.add(getDirectChannelId(myOrg, currentUser.name, asst.name));
+              registerChannelNeeded(myOrg, currentUser.name, asst.name);
             });
             // Mentor <-> Super Admins
             superAdmins.forEach(sa => {
               allowedIds.add(getDirectChannelId(myOrg, sa.name, currentUser.name));
+              registerChannelNeeded(myOrg, sa.name, currentUser.name);
+            });
+            // Mentor <-> All Students in organization
+            students.filter(s => s.organization === myOrg).forEach(std => {
+              allowedIds.add(getDirectChannelId(myOrg, currentUser.name, std.name));
+              registerChannelNeeded(myOrg, currentUser.name, std.name);
             });
           } else if (currentUser.role === 'Assistant') {
             const myOrg = currentUser.organization;
             // Assistant <-> Org Admins
             orgAdmins.filter(a => a.organization === myOrg).forEach(admin => {
               allowedIds.add(getDirectChannelId(myOrg, admin.name, currentUser.name));
+              registerChannelNeeded(myOrg, admin.name, currentUser.name);
             });
             // Assistant <-> My Mentor
             const myMentor = mentors.find(m => m.id === currentUser.mentor_id);
             if (myMentor) {
               allowedIds.add(getDirectChannelId(myOrg, myMentor.name, currentUser.name));
+              registerChannelNeeded(myOrg, myMentor.name, currentUser.name);
+              
+              // Assistant <-> My Mentor's Students (Assigned in student registry)
+              const { data: mentorStudents } = await supabase
+                .from('students')
+                .select('name')
+                .eq('mentor', myMentor.name)
+                .eq('organization', myOrg);
+              if (mentorStudents) {
+                mentorStudents.forEach(s => {
+                  allowedIds.add(getDirectChannelId(myOrg, currentUser.name, s.name));
+                  registerChannelNeeded(myOrg, currentUser.name, s.name);
+                });
+              }
             }
             // Assistant <-> Super Admins
             superAdmins.forEach(sa => {
               allowedIds.add(getDirectChannelId(myOrg, sa.name, currentUser.name));
+              registerChannelNeeded(myOrg, sa.name, currentUser.name);
             });
+          } else if (currentUser.role === 'Student') {
+            const myOrg = currentUser.organization;
+            // Student <-> Org Admins
+            orgAdmins.filter(a => a.organization === myOrg).forEach(admin => {
+              allowedIds.add(getDirectChannelId(myOrg, admin.name, currentUser.name));
+              registerChannelNeeded(myOrg, admin.name, currentUser.name);
+            });
+
+            // Find student's assigned mentor name
+            let studentMentorName: string | null = null;
+            const { data: stdData } = await supabase
+              .from('students')
+              .select('mentor')
+              .eq('email', currentUser.email)
+              .maybeSingle();
+            if (stdData) {
+              studentMentorName = stdData.mentor;
+            }
+
+            if (studentMentorName) {
+              const mentorUser = mentors.find(m => m.name.toLowerCase().trim() === studentMentorName!.toLowerCase().trim());
+              if (mentorUser) {
+                // Student <-> Mentor
+                allowedIds.add(getDirectChannelId(myOrg, currentUser.name, mentorUser.name));
+                registerChannelNeeded(myOrg, currentUser.name, mentorUser.name);
+
+                // Student <-> Mentor's Assistants
+                const mentorAssistants = assistants.filter(a => a.mentor_id === mentorUser.id);
+                mentorAssistants.forEach(asst => {
+                  allowedIds.add(getDirectChannelId(myOrg, currentUser.name, asst.name));
+                  registerChannelNeeded(myOrg, currentUser.name, asst.name);
+                });
+              }
+            }
           }
 
           const allowedChannels = currentChannels.filter(c => {
@@ -580,7 +683,7 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
             <div className="space-y-1">
               {(() => {
                 if (currentUser.role === 'Super Admin') {
-                  const orgs = Array.from(new Set(orgUsers.map(u => u.organization).filter(org => org && org !== 'All Organizations')));
+                  const orgs = Array.from(new Set(orgUsers.map(u => u.organization).filter(org => org && org !== 'All Organizations'))) as string[];
                   
                   if (orgs.length === 0) {
                     return (
@@ -670,6 +773,7 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
                   const orgName = currentUser.organization;
                   const mentors = orgUsers.filter(u => u.role === 'Mentor' && u.organization === orgName);
                   const assistants = orgUsers.filter(u => u.role === 'Assistant' && u.organization === orgName);
+                  const students = orgUsers.filter(u => u.role === 'Student' && u.organization === orgName);
 
                   const matchesSearch = (u: any) => u.name.toLowerCase().includes(searchQuery.toLowerCase());
                   const filteredMentors = mentors.filter(m => 
@@ -678,8 +782,9 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
                   const filteredUnassignedAssistants = assistants.filter(a => 
                     !mentors.some(m => m.id === a.mentor_id) && matchesSearch(a)
                   );
+                  const filteredStudents = students.filter(matchesSearch);
 
-                  if (filteredMentors.length === 0 && filteredUnassignedAssistants.length === 0) {
+                  if (filteredMentors.length === 0 && filteredUnassignedAssistants.length === 0 && filteredStudents.length === 0) {
                     return (
                       <div className="px-2 py-4 text-[11px] text-slate-400 text-center">
                         No contacts found.
@@ -722,6 +827,18 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
                           })}
                         </div>
                       )}
+
+                      {filteredStudents.length > 0 && (
+                        <div className="space-y-1 pt-2">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">Students</span>
+                          {filteredStudents.map(std => {
+                            const chId = getDirectChannelId(orgName, currentUser.name, std.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(std, ch, 'Student');
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -730,12 +847,14 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
                   const orgName = currentUser.organization;
                   const admins = orgUsers.filter(u => u.role === 'Organization Admin' && u.organization === orgName);
                   const myAssistants = orgUsers.filter(u => u.role === 'Assistant' && u.mentor_id === currentUser.id && u.organization === orgName);
+                  const students = orgUsers.filter(u => u.role === 'Student' && u.organization === orgName);
 
                   const matchesSearch = (u: any) => u.name.toLowerCase().includes(searchQuery.toLowerCase());
                   const filteredAdmins = admins.filter(matchesSearch);
                   const filteredAssistants = myAssistants.filter(matchesSearch);
+                  const filteredStudents = students.filter(matchesSearch);
 
-                  if (filteredAdmins.length === 0 && filteredAssistants.length === 0) {
+                  if (filteredAdmins.length === 0 && filteredAssistants.length === 0 && filteredStudents.length === 0) {
                     return (
                       <div className="px-2 py-4 text-[11px] text-slate-400 text-center">
                         No contacts found.
@@ -768,6 +887,18 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
                           })}
                         </div>
                       )}
+
+                      {filteredStudents.length > 0 && (
+                        <div className="space-y-1 pt-2">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">Students</span>
+                          {filteredStudents.map(std => {
+                            const chId = getDirectChannelId(orgName, currentUser.name, std.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(std, ch, 'Student');
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -776,12 +907,18 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
                   const orgName = currentUser.organization;
                   const admins = orgUsers.filter(u => u.role === 'Organization Admin' && u.organization === orgName);
                   const myMentor = orgUsers.find(u => u.role === 'Mentor' && u.id === currentUser.mentor_id && u.organization === orgName);
+                  
+                  const myMentorStudents = myMentor 
+                    ? studentRegistryList.filter(s => s.mentor === myMentor.name && s.organization === orgName).map(s => s.name)
+                    : [];
+                  const assignedStudents = orgUsers.filter(u => u.role === 'Student' && u.organization === orgName && myMentorStudents.includes(u.name));
 
                   const matchesSearch = (u: any) => u.name.toLowerCase().includes(searchQuery.toLowerCase());
                   const filteredAdmins = admins.filter(matchesSearch);
                   const showMentor = myMentor && matchesSearch(myMentor);
+                  const filteredStudents = assignedStudents.filter(matchesSearch);
 
-                  if (filteredAdmins.length === 0 && !showMentor) {
+                  if (filteredAdmins.length === 0 && !showMentor && filteredStudents.length === 0) {
                     return (
                       <div className="px-2 py-4 text-[11px] text-slate-400 text-center">
                         No contacts found.
@@ -814,6 +951,87 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
                           </div>
                         );
                       })()}
+
+                      {filteredStudents.length > 0 && (
+                        <div className="space-y-1 pt-2">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">My Mentor's Students</span>
+                          {filteredStudents.map(std => {
+                            const chId = getDirectChannelId(orgName, currentUser.name, std.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(std, ch, 'Student');
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (currentUser.role === 'Student') {
+                  const orgName = currentUser.organization;
+                  const admins = orgUsers.filter(u => u.role === 'Organization Admin' && u.organization === orgName);
+                  
+                  const studentRegistryItem = studentRegistryList.find(s => s.email === currentUser.email);
+                  const studentMentorName = studentRegistryItem?.mentor;
+                  
+                  const myMentor = studentMentorName 
+                    ? orgUsers.find(u => u.role === 'Mentor' && u.name.toLowerCase().trim() === studentMentorName.toLowerCase().trim() && u.organization === orgName)
+                    : null;
+                  
+                  const myAssistants = myMentor 
+                    ? orgUsers.filter(u => u.role === 'Assistant' && u.mentor_id === myMentor.id && u.organization === orgName)
+                    : [];
+
+                  const matchesSearch = (u: any) => u.name.toLowerCase().includes(searchQuery.toLowerCase());
+                  const filteredAdmins = admins.filter(matchesSearch);
+                  const showMentor = myMentor && matchesSearch(myMentor);
+                  const filteredAssistants = myAssistants.filter(matchesSearch);
+
+                  if (filteredAdmins.length === 0 && !showMentor && filteredAssistants.length === 0) {
+                    return (
+                      <div className="px-2 py-4 text-[11px] text-slate-400 text-center">
+                        No contacts found.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      {filteredAdmins.length > 0 && (
+                        <div className="space-y-1">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">Organization Admins</span>
+                          {filteredAdmins.map(admin => {
+                            const chId = getDirectChannelId(orgName, admin.name, currentUser.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(admin, ch, 'Org Admin');
+                          })}
+                        </div>
+                      )}
+
+                      {showMentor && myMentor && (() => {
+                        const chId = getDirectChannelId(orgName, currentUser.name, myMentor.name);
+                        const ch = channels.find(c => c.id === chId);
+                        if (!ch) return null;
+                        return (
+                          <div className="space-y-1 pt-2">
+                            <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">My Mentor</span>
+                            {renderContactButton(myMentor, ch, 'Mentor')}
+                          </div>
+                        );
+                      })()}
+
+                      {filteredAssistants.length > 0 && (
+                        <div className="space-y-1 pt-2">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">Mentor's Assistants</span>
+                          {filteredAssistants.map(asst => {
+                            const chId = getDirectChannelId(orgName, currentUser.name, asst.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(asst, ch, 'Assistant');
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 }

@@ -308,9 +308,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     action: 'create' | 'read' | 'update' | 'delete' | 'approve' | 'export' | 'assign'
   ): boolean => {
     if (!currentUser) return false;
-    if (currentUser.role === 'Student' && module.toLowerCase() === 'messaging') {
-      return false;
-    }
     if (currentUser.role === 'Super Admin' || currentUser.role === 'Organization Admin') return true;
 
     // Special Assistant check: inherit from Mentor, but explicitly deny Payments, Evaluations, etc.
@@ -334,7 +331,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : false;
       }
       if (role === 'Student') {
-        return act === 'read' && ['Session Scheduling', 'Content Library', 'Student Evaluations', 'Financial Transactions', 'Payments & Subscriptions', 'Payments'].includes(mod);
+        if (mod === 'Messaging') {
+          return ['read', 'create'].includes(act);
+        }
+        return act === 'read' && ['Session Scheduling', 'Content Library', 'Student Evaluations', 'Financial Transactions', 'Payments & Subscriptions', 'Payments', 'Mentor Assignments'].includes(mod);
       }
       return false;
     };

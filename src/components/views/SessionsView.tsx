@@ -77,7 +77,7 @@ export default function SessionsView({ selectedOrg = 'All Organizations' }: Sess
         }
         if (mentorName) query = query.eq('mentor', mentorName);
       } else if (currentUser.role === 'Student') {
-        query = query.eq('student', currentUser.name);
+        query = query.ilike('student', `%${currentUser.name}%`);
       }
 
       const { data, error } = await query;
@@ -236,13 +236,15 @@ export default function SessionsView({ selectedOrg = 'All Organizations' }: Sess
             )}
           </p>
         </div>
-        <button
-          onClick={handleSaveNotes}
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
-        >
-          <Save className="w-4 h-4" />
-          <span>Save Classnotes</span>
-        </button>
+        {currentUser?.role !== 'Student' && (
+          <button
+            onClick={handleSaveNotes}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
+          >
+            <Save className="w-4 h-4" />
+            <span>Save Classnotes</span>
+          </button>
+        )}
       </div>
 
       {/* ── Session Picker ───────────────────────────────────────────────────── */}
@@ -346,26 +348,28 @@ export default function SessionsView({ selectedOrg = 'All Organizations' }: Sess
           {/* Dual Notes Fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Private notes */}
-            <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2 border-b border-slate-50 dark:border-slate-700 pb-2 mb-3">
-                  <Lock className="w-4 h-4 text-rose-500 shrink-0" />
-                  <div>
-                    <h4 className="font-bold text-slate-800 dark:text-white text-xs">Private Observations</h4>
-                    <p className="text-[9px] text-slate-400 mt-0.5">Internal only (hidden from parents)</p>
+            {currentUser?.role !== 'Student' && (
+              <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 border-b border-slate-50 dark:border-slate-700 pb-2 mb-3">
+                    <Lock className="w-4 h-4 text-rose-500 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-slate-800 dark:text-white text-xs">Private Observations</h4>
+                      <p className="text-[9px] text-slate-400 mt-0.5">Internal only (hidden from parents)</p>
+                    </div>
                   </div>
+                  <textarea
+                    value={privateNotes}
+                    onChange={(e) => setPrivateNotes(e.target.value)}
+                    className="w-full min-h-[160px] p-3 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-sans leading-normal resize-none"
+                    placeholder="Type confidential observations, focus areas..."
+                  />
                 </div>
-                <textarea
-                  value={privateNotes}
-                  onChange={(e) => setPrivateNotes(e.target.value)}
-                  className="w-full min-h-[160px] p-3 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-sans leading-normal resize-none"
-                  placeholder="Type confidential observations, focus areas..."
-                />
               </div>
-            </div>
+            )}
 
             {/* Shared Notes (Parents Bulletin) */}
-            <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+            <div className={`bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between ${currentUser?.role === 'Student' ? 'col-span-2' : ''}`}>
               <div>
                 <div className="flex items-center gap-2 border-b border-slate-50 dark:border-slate-700 pb-2 mb-3">
                   <Users className="w-4 h-4 text-teal-500 shrink-0" />
@@ -377,7 +381,8 @@ export default function SessionsView({ selectedOrg = 'All Organizations' }: Sess
                 <textarea
                   value={sharedNotes}
                   onChange={(e) => setSharedNotes(e.target.value)}
-                  className="w-full min-h-[160px] p-3 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-sans leading-normal resize-none"
+                  readOnly={currentUser?.role === 'Student'}
+                  className="w-full min-h-[160px] p-3 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-sans leading-normal resize-none read-only:bg-slate-100/50 dark:read-only:bg-slate-900/60"
                   placeholder="Type achievements, test results, homework assignments..."
                 />
               </div>
@@ -397,29 +402,31 @@ export default function SessionsView({ selectedOrg = 'All Organizations' }: Sess
                 <p className="text-[10px] text-slate-400 mt-0.5">Record live lesson audio for AI-powered summaries</p>
               </div>
 
-              <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                <button
-                  type="button"
-                  onClick={handleToggleRecording}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
-                    isRecording
-                      ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white'
-                  }`}
-                >
-                  {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-300">
-                    {isRecording ? 'Recording active audio...' : 'Microphone Ready'}
-                  </span>
-                  <p className="text-[9px] text-slate-400 mt-0.5 truncate">
-                    {isRecording
-                      ? 'Capturing class presentation... Click again to process transcript.'
-                      : 'Click mic to record summaries.'}
-                  </p>
+              {currentUser?.role !== 'Student' && (
+                <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={handleToggleRecording}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                      isRecording
+                        ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
+                  >
+                    {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-300">
+                      {isRecording ? 'Recording active audio...' : 'Microphone Ready'}
+                    </span>
+                    <p className="text-[9px] text-slate-400 mt-0.5 truncate">
+                      {isRecording
+                        ? 'Capturing class presentation... Click again to process transcript.'
+                        : 'Click mic to record summaries.'}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="space-y-1.5 max-h-[110px] overflow-y-auto">
                 {voiceNotes.map((note, noteIdx) => (
@@ -444,14 +451,16 @@ export default function SessionsView({ selectedOrg = 'All Organizations' }: Sess
                   </h4>
                   <p className="text-[10px] text-slate-400 mt-0.5">Share curriculum resources with the student</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleAddAttachment}
-                  className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 shrink-0 cursor-pointer"
-                  title="Upload resource"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+                {currentUser?.role !== 'Student' && (
+                  <button
+                    type="button"
+                    onClick={handleAddAttachment}
+                    className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 shrink-0 cursor-pointer"
+                    title="Upload resource"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                )}
               </div>
 
               <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
@@ -461,12 +470,14 @@ export default function SessionsView({ selectedOrg = 'All Organizations' }: Sess
                       <FileText className="w-4 h-4 text-blue-500 shrink-0" />
                       <span className="truncate font-bold text-slate-600 dark:text-slate-300">{file}</span>
                     </div>
-                    <button
-                      onClick={() => setAttachments((prev) => prev.filter((a) => a !== file))}
-                      className="opacity-0 group-hover/item:opacity-100 p-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 rounded transition-all shrink-0 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {currentUser?.role !== 'Student' && (
+                      <button
+                        onClick={() => setAttachments((prev) => prev.filter((a) => a !== file))}
+                        className="opacity-0 group-hover/item:opacity-100 p-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 rounded transition-all shrink-0 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
                 {attachments.length === 0 && (
