@@ -57,12 +57,15 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
     if (!currentUser || !canRead) return;
 
     async function loadData() {
+      console.log('[StudentsView] Loading for role:', currentUser.role, 'email:', currentUser.email, 'mentor_id:', currentUser.mentor_id, 'mentorName:', currentUser.mentorName);
+      
       let query = supabase.from('students').select('*').order('created_at', { ascending: false });
       
       // Enforce organization boundaries
       const orgToFilter = currentUser.role === 'Super Admin'
         ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
         : currentUser.organization;
+      console.log('[StudentsView] orgToFilter:', orgToFilter);
       if (orgToFilter) {
         query = query.eq('organization', orgToFilter);
       }
@@ -73,14 +76,38 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
       }
 
       // Enforce Assistant attached mentor's students boundary
-      // If mentorName is resolved, show that mentor's students only
-      // If no mentorName linked (standalone assistant), show all org students
-      if (currentUser.role === 'Assistant' && currentUser.mentorName) {
-        query = query.eq('mentor', currentUser.mentorName);
+      if (currentUser.role === 'Assistant') {
+        let mentorName = currentUser.mentorName;
+        console.log('[StudentsView] Assistant mentorName from currentUser:', mentorName);
+        
+        // If mentorName wasn't resolved at login time, try to resolve it now
+        if (!mentorName && currentUser.mentor_id) {
+          const { data: resolvedName, error: rpc1Err } = await supabase
+            .rpc('get_assistant_mentor_name', { assistant_mentor_id: currentUser.mentor_id });
+          console.log('[StudentsView] RPC get_assistant_mentor_name result:', resolvedName, 'error:', rpc1Err?.message);
+          if (resolvedName) {
+            mentorName = resolvedName;
+          }
+        }
+        // Fallback: try by email if still not found
+        if (!mentorName) {
+          const { data: resolvedByEmail, error: rpc2Err } = await supabase
+            .rpc('get_mentor_name_for_assistant_email', { assistant_email: currentUser.email });
+          console.log('[StudentsView] RPC get_mentor_name_for_assistant_email result:', resolvedByEmail, 'error:', rpc2Err?.message);
+          if (resolvedByEmail) {
+            mentorName = resolvedByEmail;
+          }
+        }
+        
+        console.log('[StudentsView] Final mentorName for assistant:', mentorName);
+        if (mentorName) {
+          query = query.eq('mentor', mentorName);
+        }
+        // If still no mentorName, org filter above already scopes to their org
       }
-      // Note: if Assistant has no mentorName, the org filter above already scopes to their org
 
       const { data: stds, error } = await query;
+      console.log('[StudentsView] Query result - count:', stds?.length, 'error:', error?.message, 'data:', stds);
       if (error) {
         console.error('StudentsView: Error loading students:', error.message);
       }
@@ -90,6 +117,8 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
     }
     loadData();
   }, [currentUser, canRead, selectedOrg]);
+
+
 
   // Selected Student Details Modal state
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);

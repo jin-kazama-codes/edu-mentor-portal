@@ -54,10 +54,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await fetchUserData(session.user.id, session.user.email || '');
         } else {
           // Restore from localStorage if no Supabase session (fallback/mock users)
-          const savedUser = localStorage.getItem('edu_portal_user');
+          const savedUserStr = localStorage.getItem('edu_portal_user');
           const savedPerms = localStorage.getItem('edu_portal_permissions');
-          if (savedUser) {
-            setCurrentUser(JSON.parse(savedUser));
+          if (savedUserStr) {
+            const savedUser = JSON.parse(savedUserStr);
+            // Try to auto-login to Supabase Auth in the background since email might be confirmed now
+            try {
+              const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
+                email: savedUser.email,
+                password: 'Password123!'
+              });
+              if (!loginErr && loginData.session) {
+                console.log('Background upgrade to authenticated Supabase session successful!');
+                await fetchUserData(loginData.session.user.id, loginData.session.user.email || '');
+                return;
+              }
+            } catch (autoLoginErr) {
+              console.warn('Auto-login upgrade attempt failed:', autoLoginErr);
+            }
+            setCurrentUser(savedUser);
           }
           if (savedPerms) {
             setPermissions(JSON.parse(savedPerms));
@@ -91,23 +106,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let resolvedProfile = { ...userProfile } as User;
       if (resolvedProfile.role === 'Assistant') {
         if (resolvedProfile.mentor_id) {
-          // Look up the linked mentor user record
-          const { data: mentorUserData } = await supabase
-            .from('users')
-            .select('name, email')
-            .eq('id', resolvedProfile.mentor_id)
-            .maybeSingle();
-          if (mentorUserData) {
-            resolvedProfile.mentorName = mentorUserData.name;
-            // Also verify there's a mentors record with matching email
-            // (needed so studentsAssigned lookup works in StudentsView/DashboardView)
-            const { data: mentorRecord } = await supabase
+          // Use the SECURITY DEFINER RPC to bypass RLS and look up mentor name
+          // (Assistants cannot read other users' rows due to users_select policy)
+          const { data: rpcMentor, error: rpcErr } = await supabase
+            .rpc('get_assistant_mentor_name', { assistant_mentor_id: resolvedProfile.mentor_id });
+          
+          if (!rpcErr && rpcMentor) {
+            resolvedProfile.mentorName = rpcMentor;
+            console.log('Assistant mentorName resolved via RPC:', rpcMentor);
+          } else {
+            // Fallback: try querying mentors table by org (assistants can read mentors in their org)
+            console.warn('RPC get_assistant_mentor_name failed, trying mentors table fallback:', rpcErr?.message);
+            const { data: mentorsInOrg } = await supabase
               .from('mentors')
-              .select('name')
-              .eq('email', mentorUserData.email)
-              .maybeSingle();
-            if (mentorRecord) {
-              resolvedProfile.mentorName = mentorRecord.name;
+              .select('id, name')
+              .eq('organization', resolvedProfile.organization);
+            
+            if (mentorsInOrg && mentorsInOrg.length > 0) {
+              // Find mentor whose users.id matches mentor_id stored on the assistant
+              // We can identify by checking if the mentor_id ends with any known pattern
+              // Since mentor IDs in users table are "usr-{timestamp}" and mentors table has its own id,
+              // we need to match via a secondary approach: check users table for mentor's email
+              // Try the RPC approach with the assistant's own email to get mentor info
+              const { data: mentorByLink } = await supabase
+                .rpc('get_mentor_name_for_assistant_email', { assistant_email: resolvedProfile.email });
+              if (mentorByLink) {
+                resolvedProfile.mentorName = mentorByLink;
+                console.log('Assistant mentorName resolved via email RPC:', mentorByLink);
+              }
             }
           }
         }

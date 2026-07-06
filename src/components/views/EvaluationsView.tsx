@@ -78,7 +78,17 @@ export default function EvaluationsView({ selectedOrg = 'All Organizations' }: E
       
       if (currentUser.role === 'Mentor') {
         const { data: mInfo } = await supabase.from('mentors').select('studentsAssigned').eq('email', currentUser.email).maybeSingle();
-        const assigned = mInfo?.studentsAssigned || [];
+        const { data: sInfo } = await supabase.from('students').select('name').eq('mentor', currentUser.name);
+        
+        const assignedSet = new Set<string>();
+        if (mInfo?.studentsAssigned) {
+          mInfo.studentsAssigned.forEach((name: string) => assignedSet.add(name));
+        }
+        if (sInfo) {
+          sInfo.forEach((s: any) => assignedSet.add(s.name));
+        }
+        
+        const assigned = Array.from(assignedSet);
         if (assigned.length > 0) {
           query = query.in('studentName', assigned);
         } else {
@@ -86,7 +96,17 @@ export default function EvaluationsView({ selectedOrg = 'All Organizations' }: E
         }
       } else if (currentUser.role === 'Assistant' && currentUser.mentorName) {
         const { data: mInfo } = await supabase.from('mentors').select('studentsAssigned').eq('name', currentUser.mentorName).maybeSingle();
-        const assigned = mInfo?.studentsAssigned || [];
+        const { data: sInfo } = await supabase.from('students').select('name').eq('mentor', currentUser.mentorName);
+        
+        const assignedSet = new Set<string>();
+        if (mInfo?.studentsAssigned) {
+          mInfo.studentsAssigned.forEach((name: string) => assignedSet.add(name));
+        }
+        if (sInfo) {
+          sInfo.forEach((s: any) => assignedSet.add(s.name));
+        }
+        
+        const assigned = Array.from(assignedSet);
         if (assigned.length > 0) {
           query = query.in('studentName', assigned);
         } else {

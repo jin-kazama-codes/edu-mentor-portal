@@ -16,6 +16,7 @@ import DashboardView from './components/views/DashboardView';
 import OrganizationsView from './components/views/OrganizationsView';
 import UsersView from './components/views/UsersView';
 import MentorsView from './components/views/MentorsView';
+import AssistantsView from './components/views/AssistantsView';
 import StudentsView from './components/views/StudentsView';
 import AssignmentView from './components/views/AssignmentView';
 import CalendarView from './components/views/CalendarView';
@@ -80,6 +81,8 @@ function MainApp() {
         return <UsersView />;
       case 'mentors':
         return <MentorsView selectedOrg={selectedOrg} />;
+      case 'assistants':
+        return <AssistantsView selectedOrg={selectedOrg} />;
       case 'students':
         return <StudentsView defaultAddOpen={quickActionTrigger?.action === 'add_student'} selectedOrg={selectedOrg} />;
       case 'assignment':
