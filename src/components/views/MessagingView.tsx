@@ -41,6 +41,49 @@ interface MessagingViewProps {
   selectedOrg?: string;
 }
 
+// Deterministic ID generator for direct channels
+const getDirectChannelId = (org: string, name1: string, name2: string) => {
+  const cleanOrg = org.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const clean1 = name1.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const clean2 = name2.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const sorted = [clean1, clean2].sort();
+  return `ch-${cleanOrg}-${sorted[0]}-${sorted[1]}`;
+};
+
+// Resolver for direct chat partner user information
+const getDirectChatPartner = (channelName: string, currentUser: any, users: any[]) => {
+  const parts = channelName.split(' - ');
+  if (parts.length !== 2) return null;
+  
+  const cleanParts = parts.map(p => p.toLowerCase().trim());
+  const cleanUser = currentUser.name.toLowerCase().trim();
+  
+  let partnerName = '';
+  if (cleanParts[0] === cleanUser) {
+    partnerName = parts[1];
+  } else if (cleanParts[1] === cleanUser) {
+    partnerName = parts[0];
+  } else {
+    // Fallback if currentUser name is slightly different or admin name matches differently
+    const user0 = users.find(u => u.name.toLowerCase().trim() === cleanParts[0]);
+    if (currentUser.role === 'Organization Admin' || currentUser.role === 'Super Admin') {
+      if (user0 && user0.role !== 'Organization Admin' && user0.role !== 'Super Admin') {
+        partnerName = parts[0];
+      } else {
+        partnerName = parts[1];
+      }
+    } else {
+      partnerName = cleanParts[0] === 'admin' || cleanParts[0] === 'organization admin' ? parts[1] : parts[0];
+    }
+  }
+  
+  return users.find(u => u.name.toLowerCase().trim() === partnerName.toLowerCase().trim()) || {
+    name: partnerName,
+    role: 'User',
+    avatar: ''
+  };
+};
+
 export default function MessagingView({ selectedOrg = 'All Organizations' }: MessagingViewProps) {
   const { currentUser } = useAuth();
   const [channels, setChannels] = useState<ChatChannel[]>([]);
@@ -51,6 +94,7 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [notification, setNotification] = useState<{ sender: string; text: string } | null>(null);
   const [adminNames, setAdminNames] = useState<string[]>(['f2fintech', 'codevamo', 'mahin bhat']);
+  const [orgUsers, setOrgUsers] = useState<any[]>([]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -66,90 +110,168 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
       
       const { data, error } = await query;
       if (!error && data) {
-        let filtered = data;
+        let currentChannels = data;
 
-        // Fetch users in the active organization to identify their roles
+        // Fetch users to identify roles and build links
         let usersQuery = supabase.from('users').select('id, name, role, organization, mentor_id, avatar');
         if (orgToFilter) {
           usersQuery = usersQuery.eq('organization', orgToFilter);
         }
-        const { data: orgUsers, error: usersErr } = await usersQuery;
+        const { data: fetchedUsers, error: usersErr } = await usersQuery;
 
-        if (!usersErr && orgUsers) {
-          const mentorsAndAssistants = orgUsers
+        if (!usersErr && fetchedUsers) {
+          setOrgUsers(fetchedUsers);
+
+          const mentorsAndAssistants = fetchedUsers
             .filter(u => u.role === 'Mentor' || u.role === 'Assistant')
             .map(u => u.name.toLowerCase().trim());
-          const admins = orgUsers
+          const admins = fetchedUsers
             .filter(u => u.role === 'Organization Admin' || u.role === 'Super Admin')
             .map(u => u.name.toLowerCase().trim());
           setAdminNames(admins);
 
-          if (currentUser.role === 'Organization Admin' || currentUser.role === 'Super Admin') {
-            // Admin chats with Mentors and Assistants
-            filtered = data.filter(c =>
-              c.type === 'channel' ||
-              mentorsAndAssistants.includes(c.name.toLowerCase().trim())
-            );
-          } else if (currentUser.role === 'Mentor') {
-            // Mentor chats with Admin (the channel matching their own name)
-            // AND their Assistants (channels matching the assistant's name)
-            const myAssistants = orgUsers
-              .filter(u => u.role === 'Assistant' && u.mentor_id === currentUser.id)
-              .map(u => u.name.toLowerCase().trim());
+          const superAdmins = fetchedUsers.filter(u => u.role === 'Super Admin');
+          const orgAdmins = fetchedUsers.filter(u => u.role === 'Organization Admin');
+          const mentors = fetchedUsers.filter(u => u.role === 'Mentor');
+          const assistants = fetchedUsers.filter(u => u.role === 'Assistant');
+          
+          const channelsToCreate: any[] = [];
+          const existingIds = new Set(data.map(c => c.id));
+          
+          const registerChannelNeeded = (chOrg: string, name1: string, name2: string) => {
+            const chId = getDirectChannelId(chOrg, name1, name2);
+            if (!existingIds.has(chId) && !channelsToCreate.some(c => c.id === chId)) {
+              channelsToCreate.push({
+                id: chId,
+                name: `${name1} - ${name2}`,
+                type: 'direct',
+                unreadCount: 0,
+                subtitle: 'Direct Message',
+                avatar: '',
+                organization: chOrg
+              });
+            }
+          };
 
-            filtered = data.filter(c =>
-              c.type === 'channel' ||
-              c.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
-              myAssistants.includes(c.name.toLowerCase().trim())
-            );
-
-            const adminName = orgUsers.find(u => u.role === 'Organization Admin')?.name || 'Organization Admin';
-            filtered = filtered.map(c => {
-              if (c.type === 'direct' && c.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim()) {
-                return {
-                  ...c,
-                  name: adminName,
-                  subtitle: 'Organization Administrator',
-                  avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80'
-                };
+          // 1. Super Admin <-> Org Admin, Mentor, Assistant of all organizations
+          superAdmins.forEach(sa => {
+            fetchedUsers.forEach(u => {
+              if (u.role !== 'Super Admin' && u.role !== 'Student') {
+                const chOrg = u.organization !== 'All Organizations' ? u.organization : 'Global';
+                registerChannelNeeded(chOrg, sa.name, u.name);
               }
-              return c;
+            });
+          });
+
+          // 2. Org Admin <-> Mentor and Assistant of same organization
+          orgAdmins.forEach(admin => {
+            mentors.filter(m => m.organization === admin.organization).forEach(mentor => {
+              registerChannelNeeded(admin.organization, admin.name, mentor.name);
+            });
+            assistants.filter(a => a.organization === admin.organization).forEach(asst => {
+              registerChannelNeeded(admin.organization, admin.name, asst.name);
+            });
+          });
+
+          // 3. Mentor <-> Assigned Assistant
+          mentors.forEach(mentor => {
+            const mentorAssistants = assistants.filter(a => a.mentor_id === mentor.id);
+            mentorAssistants.forEach(assistant => {
+              registerChannelNeeded(mentor.organization, mentor.name, assistant.name);
+            });
+          });
+
+          if (channelsToCreate.length > 0) {
+            const { error: insertErr } = await supabase.from('chat_channels').insert(channelsToCreate);
+            if (!insertErr) {
+              let refreshQuery = supabase.from('chat_channels').select('*');
+              if (orgToFilter) {
+                refreshQuery = refreshQuery.eq('organization', orgToFilter);
+              }
+              const { data: refreshedChannels, error: refreshErr } = await refreshQuery;
+              if (!refreshErr && refreshedChannels) {
+                currentChannels = refreshedChannels;
+              }
+            } else {
+              console.error('Failed to auto-create channels:', insertErr);
+            }
+          }
+
+          const allowedIds = new Set<string>();
+
+          if (currentUser.role === 'Super Admin') {
+            // Super Admin participates in direct chats with every user except students
+            fetchedUsers.forEach(u => {
+              if (u.id !== currentUser.id && u.role !== 'Student') {
+                const chOrg = u.organization !== 'All Organizations' ? u.organization : 'Global';
+                allowedIds.add(getDirectChannelId(chOrg, currentUser.name, u.name));
+              }
+            });
+          } else if (currentUser.role === 'Organization Admin') {
+            const myOrg = currentUser.organization;
+            // Org Admin <-> Mentors
+            mentors.filter(m => m.organization === myOrg).forEach(m => {
+              allowedIds.add(getDirectChannelId(myOrg, currentUser.name, m.name));
+            });
+            // Org Admin <-> Assistants
+            assistants.filter(a => a.organization === myOrg).forEach(a => {
+              allowedIds.add(getDirectChannelId(myOrg, currentUser.name, a.name));
+            });
+            // Org Admin <-> Super Admins
+            superAdmins.forEach(sa => {
+              allowedIds.add(getDirectChannelId(myOrg, sa.name, currentUser.name));
+            });
+          } else if (currentUser.role === 'Mentor') {
+            const myOrg = currentUser.organization;
+            // Mentor <-> Org Admins
+            orgAdmins.filter(a => a.organization === myOrg).forEach(admin => {
+              allowedIds.add(getDirectChannelId(myOrg, admin.name, currentUser.name));
+            });
+            // Mentor <-> My Assistants
+            assistants.filter(a => a.mentor_id === currentUser.id).forEach(asst => {
+              allowedIds.add(getDirectChannelId(myOrg, currentUser.name, asst.name));
+            });
+            // Mentor <-> Super Admins
+            superAdmins.forEach(sa => {
+              allowedIds.add(getDirectChannelId(myOrg, sa.name, currentUser.name));
             });
           } else if (currentUser.role === 'Assistant') {
-            // Assistant only chats with their Mentor (the channel matching their own name)
-            filtered = data.filter(c =>
-              c.type === 'channel' ||
-              c.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim()
-            );
-
-            const myMentor = orgUsers.find(u => u.id === currentUser.mentor_id);
-            const mentorName = myMentor ? myMentor.name : 'Mentor';
-
-            filtered = filtered.map(c => {
-              if (c.type === 'direct' && c.name.toLowerCase().trim() === currentUser.name.toLowerCase().trim()) {
-                return {
-                  ...c,
-                  name: mentorName,
-                  subtitle: 'Mentor',
-                  avatar: myMentor?.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
-                };
-              }
-              return c;
+            const myOrg = currentUser.organization;
+            // Assistant <-> Org Admins
+            orgAdmins.filter(a => a.organization === myOrg).forEach(admin => {
+              allowedIds.add(getDirectChannelId(myOrg, admin.name, currentUser.name));
             });
+            // Assistant <-> My Mentor
+            const myMentor = mentors.find(m => m.id === currentUser.mentor_id);
+            if (myMentor) {
+              allowedIds.add(getDirectChannelId(myOrg, myMentor.name, currentUser.name));
+            }
+            // Assistant <-> Super Admins
+            superAdmins.forEach(sa => {
+              allowedIds.add(getDirectChannelId(myOrg, sa.name, currentUser.name));
+            });
+          }
+
+          const allowedChannels = currentChannels.filter(c => {
+            if (c.type === 'channel') {
+              if (currentUser.role === 'Super Admin') {
+                return selectedOrg === 'All Organizations' || c.organization === selectedOrg;
+              }
+              return c.organization === currentUser.organization;
+            }
+            return allowedIds.has(c.id);
+          });
+
+          setChannels(allowedChannels);
+
+          if (allowedChannels.length > 0) {
+            const hasActive = allowedChannels.some(c => c.id === activeChannelId);
+            if (!hasActive) {
+              setActiveChannelId(allowedChannels[0].id);
+            }
           } else {
-            // Students or other roles get no channels
-            filtered = [];
+            setActiveChannelId('');
           }
-        }
-        setChannels(filtered);
-        
-        if (filtered.length > 0) {
-          const hasActive = filtered.some(c => c.id === activeChannelId);
-          if (!hasActive) {
-            setActiveChannelId(filtered[0].id);
-          }
-        } else {
-          setActiveChannelId('');
         }
       }
     }
@@ -294,10 +416,68 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
       }, 2500);
     }
   };
-
-
+  const renderContactButton = (user: any, ch: ChatChannel, subLabel: string) => {
+    const isSelected = ch.id === activeChannelId;
+    return (
+      <button
+        key={user.id}
+        onClick={() => {
+          setActiveChannelId(ch.id);
+          setShowMobileChat(true);
+        }}
+        className={`w-full flex items-center justify-between p-2 rounded-xl text-left cursor-pointer transition-all ${
+          isSelected 
+            ? 'bg-blue-600 text-white font-bold shadow-sm shadow-blue-600/10' 
+            : 'hover:bg-slate-150 text-slate-650 dark:text-slate-350'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          {user.avatar ? (
+            <img
+              src={user.avatar}
+              alt={user.name}
+              referrerPolicy="no-referrer"
+              className="w-6.5 h-6.5 rounded-md object-cover shrink-0 border border-slate-200"
+            />
+          ) : (
+            <div className={`w-6.5 h-6.5 rounded-md flex items-center justify-center font-bold text-xs shrink-0 select-none ${
+              isSelected ? 'bg-blue-700 text-white' : 'bg-slate-100 dark:bg-slate-850 text-slate-400'
+            }`}>
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0">
+            <h4 className="text-xs truncate font-bold leading-normal">{user.name}</h4>
+            <p className={`text-[9px] truncate ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{subLabel}</p>
+          </div>
+        </div>
+        {ch.unreadCount > 0 && !isSelected && (
+          <span className="bg-rose-500 text-white font-extrabold text-[8px] px-1.5 py-0.5 rounded-full shrink-0">
+            {ch.unreadCount}
+          </span>
+        )}
+      </button>
+    );
+  };
 
   const activeChannel = channels.find((ch) => ch.id === activeChannelId);
+
+  const resolvedHeaderInfo = activeChannel
+    ? (activeChannel.type === 'direct'
+        ? (() => {
+            const partner = getDirectChatPartner(activeChannel.name, currentUser, orgUsers);
+            return {
+              name: partner?.name || activeChannel.name,
+              subtitle: partner?.role || activeChannel.subtitle,
+              avatar: partner?.avatar || activeChannel.avatar
+            };
+          })()
+        : {
+            name: activeChannel.name,
+            subtitle: activeChannel.subtitle,
+            avatar: activeChannel.avatar
+          })
+    : { name: 'Conversation thread', subtitle: '', avatar: '' };
 
   return (
     <div className="relative h-[calc(100vh-170px)] flex flex-col lg:flex-row bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-850 overflow-hidden shadow-sm">
@@ -376,7 +556,7 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-left cursor-pointer transition-all ${
                         isSelected 
                           ? 'bg-blue-600 text-white font-bold' 
-                          : 'hover:bg-slate-150 text-slate-600 dark:text-slate-300'
+                          : 'hover:bg-slate-150 text-slate-650 dark:text-slate-300'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
@@ -398,47 +578,248 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
           <div>
             <span className="text-[9px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-2">Chats</span>
             <div className="space-y-1">
-              {channels
-                .filter((ch) => ch.type === 'direct' && ch.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                .map((ch) => {
-                  const isSelected = ch.id === activeChannelId;
-                  return (
-                    <button
-                      key={ch.id}
-                      onClick={() => {
-                        setActiveChannelId(ch.id);
-                        setShowMobileChat(true);
-                      }}
-                      className={`w-full flex items-center justify-between p-2 rounded-xl text-left cursor-pointer transition-all ${
-                        isSelected 
-                          ? 'bg-blue-600 text-white font-bold shadow-sm shadow-blue-600/10' 
-                          : 'hover:bg-slate-150 text-slate-600 dark:text-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        {ch.avatar ? (
-                          <img
-                            src={ch.avatar}
-                            alt={ch.name}
-                            referrerPolicy="no-referrer"
-                            className="w-6.5 h-6.5 rounded-md object-cover shrink-0 border border-slate-200"
-                          />
-                        ) : (
-                          <User className={`w-6.5 h-6.5 rounded-md p-1 bg-slate-100 dark:bg-slate-850 shrink-0 ${isSelected ? 'text-white' : 'text-slate-400'}`} />
-                        )}
-                        <div className="min-w-0">
-                          <h4 className="text-xs truncate font-bold leading-normal">{ch.name}</h4>
-                          <p className={`text-[9px] truncate ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{ch.subtitle}</p>
-                        </div>
+              {(() => {
+                if (currentUser.role === 'Super Admin') {
+                  const orgs = Array.from(new Set(orgUsers.map(u => u.organization).filter(org => org && org !== 'All Organizations')));
+                  
+                  if (orgs.length === 0) {
+                    return (
+                      <div className="px-2 py-4 text-[11px] text-slate-400 text-center">
+                        No organizations or users found.
                       </div>
-                      {ch.unreadCount > 0 && !isSelected && (
-                        <span className="bg-rose-500 text-white font-extrabold text-[8px] px-1.5 py-0.5 rounded-full shrink-0">
-                          {ch.unreadCount}
-                        </span>
-                      )}
-                    </button>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-4">
+                      {orgs.map(orgName => {
+                        const orgUsersInOrg = orgUsers.filter(u => u.organization === orgName);
+                        const admins = orgUsersInOrg.filter(u => u.role === 'Organization Admin');
+                        const mentors = orgUsersInOrg.filter(u => u.role === 'Mentor');
+                        const assistants = orgUsersInOrg.filter(u => u.role === 'Assistant');
+
+                        // Match search query if any
+                        const matchesSearch = (u: any) => u.name.toLowerCase().includes(searchQuery.toLowerCase());
+                        const filteredAdmins = admins.filter(matchesSearch);
+                        const filteredMentors = mentors.filter(m => 
+                          matchesSearch(m) || assistants.some(a => a.mentor_id === m.id && matchesSearch(a))
+                        );
+                        const filteredUnassignedAssistants = assistants.filter(a => 
+                          !mentors.some(m => m.id === a.mentor_id) && matchesSearch(a)
+                        );
+
+                        if (filteredAdmins.length === 0 && filteredMentors.length === 0 && filteredUnassignedAssistants.length === 0) {
+                          return null; // hide empty organization section during search
+                        }
+
+                        return (
+                          <div key={orgName} className="space-y-1.5">
+                            {/* Organization Header */}
+                            <div className="px-2 py-1 bg-slate-200/50 dark:bg-slate-800/60 rounded-lg">
+                              <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 tracking-wide uppercase">
+                                {orgName}
+                              </span>
+                            </div>
+
+                            {/* Org Admins */}
+                            {filteredAdmins.map(admin => {
+                              const chId = getDirectChannelId(orgName, currentUser.name, admin.name);
+                              const ch = channels.find(c => c.id === chId);
+                              if (!ch) return null;
+                              return renderContactButton(admin, ch, 'Org Admin');
+                            })}
+
+                            {/* Mentors with Assistants nested */}
+                            {filteredMentors.map(mentor => {
+                              const chId = getDirectChannelId(orgName, currentUser.name, mentor.name);
+                              const ch = channels.find(c => c.id === chId);
+                              const mentorAssistants = assistants.filter(a => a.mentor_id === mentor.id);
+
+                              return (
+                                <div key={mentor.id} className="space-y-1">
+                                  {ch && renderContactButton(mentor, ch, 'Mentor')}
+                                  {mentorAssistants.length > 0 && (
+                                    <div className="pl-3 ml-4 border-l border-slate-200 dark:border-slate-700 space-y-1">
+                                      {mentorAssistants.map(asst => {
+                                        const asstChId = getDirectChannelId(orgName, currentUser.name, asst.name);
+                                        const asstCh = channels.find(c => c.id === asstChId);
+                                        if (!asstCh) return null;
+                                        return renderContactButton(asst, asstCh, 'Assistant');
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                            {/* Unassigned Assistants */}
+                            {filteredUnassignedAssistants.map(asst => {
+                              const chId = getDirectChannelId(orgName, currentUser.name, asst.name);
+                              const ch = channels.find(c => c.id === chId);
+                              if (!ch) return null;
+                              return renderContactButton(asst, ch, 'Assistant (Unassigned)');
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
                   );
-                })}
+                }
+
+                if (currentUser.role === 'Organization Admin') {
+                  const orgName = currentUser.organization;
+                  const mentors = orgUsers.filter(u => u.role === 'Mentor' && u.organization === orgName);
+                  const assistants = orgUsers.filter(u => u.role === 'Assistant' && u.organization === orgName);
+
+                  const matchesSearch = (u: any) => u.name.toLowerCase().includes(searchQuery.toLowerCase());
+                  const filteredMentors = mentors.filter(m => 
+                    matchesSearch(m) || assistants.some(a => a.mentor_id === m.id && matchesSearch(a))
+                  );
+                  const filteredUnassignedAssistants = assistants.filter(a => 
+                    !mentors.some(m => m.id === a.mentor_id) && matchesSearch(a)
+                  );
+
+                  if (filteredMentors.length === 0 && filteredUnassignedAssistants.length === 0) {
+                    return (
+                      <div className="px-2 py-4 text-[11px] text-slate-400 text-center">
+                        No contacts found.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      {filteredMentors.map(mentor => {
+                        const chId = getDirectChannelId(orgName, currentUser.name, mentor.name);
+                        const ch = channels.find(c => c.id === chId);
+                        const mentorAssistants = assistants.filter(a => a.mentor_id === mentor.id);
+
+                        return (
+                          <div key={mentor.id} className="space-y-1">
+                            {ch && renderContactButton(mentor, ch, 'Mentor')}
+                            {mentorAssistants.length > 0 && (
+                              <div className="pl-3 ml-4 border-l border-slate-200 dark:border-slate-700 space-y-1">
+                                {mentorAssistants.map(asst => {
+                                  const asstChId = getDirectChannelId(orgName, currentUser.name, asst.name);
+                                  const asstCh = channels.find(c => c.id === asstChId);
+                                  if (!asstCh) return null;
+                                  return renderContactButton(asst, asstCh, 'Assistant');
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {filteredUnassignedAssistants.length > 0 && (
+                        <div className="space-y-1 pt-2">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1.5">Unassigned Assistants</span>
+                          {filteredUnassignedAssistants.map(asst => {
+                            const chId = getDirectChannelId(orgName, currentUser.name, asst.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(asst, ch, 'Assistant (Unassigned)');
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (currentUser.role === 'Mentor') {
+                  const orgName = currentUser.organization;
+                  const admins = orgUsers.filter(u => u.role === 'Organization Admin' && u.organization === orgName);
+                  const myAssistants = orgUsers.filter(u => u.role === 'Assistant' && u.mentor_id === currentUser.id && u.organization === orgName);
+
+                  const matchesSearch = (u: any) => u.name.toLowerCase().includes(searchQuery.toLowerCase());
+                  const filteredAdmins = admins.filter(matchesSearch);
+                  const filteredAssistants = myAssistants.filter(matchesSearch);
+
+                  if (filteredAdmins.length === 0 && filteredAssistants.length === 0) {
+                    return (
+                      <div className="px-2 py-4 text-[11px] text-slate-400 text-center">
+                        No contacts found.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      {filteredAdmins.length > 0 && (
+                        <div className="space-y-1">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">Organization Admins</span>
+                          {filteredAdmins.map(admin => {
+                            const chId = getDirectChannelId(orgName, admin.name, currentUser.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(admin, ch, 'Org Admin');
+                          })}
+                        </div>
+                      )}
+
+                      {filteredAssistants.length > 0 && (
+                        <div className="space-y-1 pt-2">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">My Assistants</span>
+                          {filteredAssistants.map(asst => {
+                            const chId = getDirectChannelId(orgName, currentUser.name, asst.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(asst, ch, 'Assistant');
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (currentUser.role === 'Assistant') {
+                  const orgName = currentUser.organization;
+                  const admins = orgUsers.filter(u => u.role === 'Organization Admin' && u.organization === orgName);
+                  const myMentor = orgUsers.find(u => u.role === 'Mentor' && u.id === currentUser.mentor_id && u.organization === orgName);
+
+                  const matchesSearch = (u: any) => u.name.toLowerCase().includes(searchQuery.toLowerCase());
+                  const filteredAdmins = admins.filter(matchesSearch);
+                  const showMentor = myMentor && matchesSearch(myMentor);
+
+                  if (filteredAdmins.length === 0 && !showMentor) {
+                    return (
+                      <div className="px-2 py-4 text-[11px] text-slate-400 text-center">
+                        No contacts found.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      {filteredAdmins.length > 0 && (
+                        <div className="space-y-1">
+                          <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">Organization Admins</span>
+                          {filteredAdmins.map(admin => {
+                            const chId = getDirectChannelId(orgName, admin.name, currentUser.name);
+                            const ch = channels.find(c => c.id === chId);
+                            if (!ch) return null;
+                            return renderContactButton(admin, ch, 'Org Admin');
+                          })}
+                        </div>
+                      )}
+
+                      {showMentor && myMentor && (() => {
+                        const chId = getDirectChannelId(orgName, myMentor.name, currentUser.name);
+                        const ch = channels.find(c => c.id === chId);
+                        if (!ch) return null;
+                        return (
+                          <div className="space-y-1 pt-2">
+                            <span className="text-[8px] uppercase font-extrabold text-slate-400 tracking-wider block px-2 mb-1">My Mentor</span>
+                            {renderContactButton(myMentor, ch, 'Mentor')}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                }
+
+                return null;
+              })()}
             </div>
           </div>
 
@@ -463,22 +844,31 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
             </button>
             {activeChannel?.type === 'channel' ? (
               <Hash className="w-5 h-5 text-slate-400 shrink-0" />
+            ) : resolvedHeaderInfo.avatar ? (
+              <img
+                src={resolvedHeaderInfo.avatar}
+                alt={resolvedHeaderInfo.name}
+                referrerPolicy="no-referrer"
+                className="w-5 h-5 rounded-md object-cover shrink-0 border border-slate-200"
+              />
             ) : (
-              <User className="w-5 h-5 text-blue-500 shrink-0" />
+              <div className="w-5 h-5 rounded-md bg-slate-150 text-slate-500 flex items-center justify-center font-extrabold text-[10px] shrink-0 border border-slate-200">
+                {resolvedHeaderInfo.name.charAt(0).toUpperCase()}
+              </div>
             )}
             <div className="min-w-0">
               <h3 className="font-extrabold text-slate-800 dark:text-white text-xs truncate">
-                {activeChannel?.name || 'Conversation thread'}
+                {resolvedHeaderInfo.name}
               </h3>
-              <p className="text-[10px] text-slate-400 truncate">{activeChannel?.subtitle}</p>
+              <p className="text-[10px] text-slate-400 truncate">{resolvedHeaderInfo.subtitle}</p>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
-            <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+            <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-650">
               <Phone className="w-4 h-4" />
             </button>
-            <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+            <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-650">
               <Video className="w-4 h-4" />
             </button>
           </div>
@@ -498,23 +888,33 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
             <>
               {activeMessages.map((msg) => {
                 const isMessageSelf = msg.sender.toLowerCase().trim() === currentUser.name.toLowerCase().trim();
-                const isAdminSender = adminNames.includes(msg.sender.toLowerCase().trim());
-                const bubbleColorClass = isAdminSender
-                  ? 'bg-blue-600 text-white font-semibold'
-                  : 'bg-emerald-600 dark:bg-emerald-700 text-white font-semibold';
+                
+                // Find sender details dynamically
+                const senderUser = orgUsers.find(u => u.name.toLowerCase().trim() === msg.sender.toLowerCase().trim());
+                const senderAvatar = senderUser?.avatar || msg.avatar || '';
+
+                const bubbleColorClass = isMessageSelf
+                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-750 text-slate-850 dark:text-slate-100 font-semibold';
 
                 return (
                   <div
                     key={msg.id}
                     className={`flex items-start gap-3 ${isMessageSelf ? 'justify-end' : 'justify-start'}`}
                   >
-                    {!isMessageSelf && msg.avatar && (
-                      <img
-                        src={msg.avatar}
-                        alt={msg.sender}
-                        referrerPolicy="no-referrer"
-                        className="w-8 h-8 rounded-lg object-cover ring-1 ring-slate-100 shrink-0 shadow-xs"
-                      />
+                    {!isMessageSelf && (
+                      senderAvatar ? (
+                        <img
+                          src={senderAvatar}
+                          alt={msg.sender}
+                          referrerPolicy="no-referrer"
+                          className="w-8 h-8 rounded-lg object-cover ring-1 ring-slate-100 shrink-0 shadow-xs"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 flex items-center justify-center font-bold text-xs shrink-0 ring-1 ring-slate-200">
+                          {msg.sender.charAt(0).toUpperCase()}
+                        </div>
+                      )
                     )}
                     <div className={`max-w-[70%] space-y-1 ${isMessageSelf ? 'order-1' : 'order-2'}`}>
                       {/* Meta details */}
@@ -553,7 +953,7 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               disabled={!activeChannelId}
-              placeholder={activeChannel ? `Write a reply to ${activeChannel.name}...` : "No channel selected"}
+              placeholder={activeChannel ? `Write a reply to ${resolvedHeaderInfo.name}...` : "No channel selected"}
               className="flex-1 min-w-0 bg-transparent text-xs text-slate-800 dark:text-white focus:outline-none placeholder-slate-400 font-medium disabled:opacity-50"
             />
 
@@ -575,3 +975,7 @@ export default function MessagingView({ selectedOrg = 'All Organizations' }: Mes
     </div>
   );
 }
+
+
+
+

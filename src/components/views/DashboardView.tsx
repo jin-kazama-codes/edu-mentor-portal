@@ -133,7 +133,17 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
       }
       if (currentUser.role === 'Mentor') {
         const { data: mInfo } = await supabase.from('mentors').select('studentsAssigned').eq('email', currentUser.email).maybeSingle();
-        const assigned = mInfo?.studentsAssigned || [];
+        const { data: sInfo } = await supabase.from('students').select('name').eq('mentor', currentUser.name);
+        
+        const assignedSet = new Set<string>();
+        if (mInfo?.studentsAssigned) {
+          mInfo.studentsAssigned.forEach((name: string) => assignedSet.add(name));
+        }
+        if (sInfo) {
+          sInfo.forEach((s: any) => assignedSet.add(s.name));
+        }
+        
+        const assigned = Array.from(assignedSet);
         if (assigned.length > 0) {
           evalsQuery = evalsQuery.in('studentName', assigned);
         } else {
@@ -141,7 +151,17 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
         }
       } else if (currentUser.role === 'Assistant' && currentUser.mentorName) {
         const { data: mInfo } = await supabase.from('mentors').select('studentsAssigned').eq('name', currentUser.mentorName).maybeSingle();
-        const assigned = mInfo?.studentsAssigned || [];
+        const { data: sInfo } = await supabase.from('students').select('name').eq('mentor', currentUser.mentorName);
+        
+        const assignedSet = new Set<string>();
+        if (mInfo?.studentsAssigned) {
+          mInfo.studentsAssigned.forEach((name: string) => assignedSet.add(name));
+        }
+        if (sInfo) {
+          sInfo.forEach((s: any) => assignedSet.add(s.name));
+        }
+        
+        const assigned = Array.from(assignedSet);
         if (assigned.length > 0) {
           evalsQuery = evalsQuery.in('studentName', assigned);
         } else {
@@ -488,11 +508,17 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
             {studentMentor ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-750/30 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                  <img
-                    src={studentMentor.avatar}
-                    alt={studentMentor.name}
-                    className="w-12 h-12 rounded-xl object-cover ring-2 ring-slate-100 dark:ring-slate-800"
-                  />
+                  {studentMentor.avatar ? (
+                    <img
+                      src={studentMentor.avatar}
+                      alt={studentMentor.name}
+                      className="w-12 h-12 rounded-xl object-cover ring-2 ring-slate-100 dark:ring-slate-800 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 font-extrabold text-base select-none shrink-0 ring-2 ring-slate-100 dark:ring-slate-800">
+                      {studentMentor.name.trim().charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div>
                     <h4 className="text-xs font-bold text-slate-800 dark:text-white">{studentMentor.name}</h4>
                     <p className="text-[10px] text-slate-400 mt-0.5">{studentMentor.email}</p>

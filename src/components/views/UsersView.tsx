@@ -31,6 +31,30 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { hashPassword } from '../../utils/crypto';
 
+function UserAvatar({ src, name }: { src?: string; name: string }) {
+  const [error, setError] = useState(false);
+
+  const isValidUrl = src && (src.startsWith('http') || src.startsWith('data:image') || src.startsWith('/'));
+
+  if (!isValidUrl || error) {
+    return (
+      <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-750 ring-2 ring-slate-100 dark:ring-slate-700 shrink-0 flex items-center justify-center text-slate-650 dark:text-slate-350 font-extrabold text-[13px] select-none">
+        {name.trim().charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      referrerPolicy="no-referrer"
+      onError={() => setError(true)}
+      className="w-9 h-9 rounded-lg object-cover ring-2 ring-slate-100 dark:ring-slate-700 shrink-0"
+    />
+  );
+}
+
 export default function UsersView() {
   const { currentUser, hasPermission, logSecurityAudit } = useAuth();
   const [data, setData] = useState<User[]>([]);
@@ -222,7 +246,7 @@ export default function UsersView() {
     }
 
     const resolvedOrg = currentUser.role === 'Super Admin' ? inviteOrg : currentUser.organization;
-    let uploadedAvatarUrl = `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`;
+    let uploadedAvatarUrl = '';
 
     if (inviteAvatarFile) {
       try {
@@ -498,6 +522,10 @@ export default function UsersView() {
     }
     if (selectedIds.length === 0) return;
 
+    const usersToDelete = data.filter((u) => selectedIds.includes(u.id));
+    const mentorEmails = usersToDelete.filter((u) => u.role === 'Mentor').map((u) => u.email);
+    const studentEmails = usersToDelete.filter((u) => u.role === 'Student').map((u) => u.email);
+
     const { error } = await supabase
       .from('users')
       .delete()
@@ -507,6 +535,26 @@ export default function UsersView() {
       console.error(error);
       alert('Error deleting selected users: ' + error.message);
       return;
+    }
+
+    if (mentorEmails.length > 0) {
+      const { error: mentorError } = await supabase
+        .from('mentors')
+        .delete()
+        .in('email', mentorEmails);
+      if (mentorError) {
+        console.error('Error deleting from mentors table:', mentorError);
+      }
+    }
+
+    if (studentEmails.length > 0) {
+      const { error: studentError } = await supabase
+        .from('students')
+        .delete()
+        .in('email', studentEmails);
+      if (studentError) {
+        console.error('Error deleting from students table:', studentError);
+      }
     }
 
     await logSecurityAudit(
@@ -543,6 +591,24 @@ export default function UsersView() {
       console.error(error);
       alert('Error deleting user: ' + error.message);
       return;
+    }
+
+    if (user.role === 'Mentor') {
+      const { error: mentorError } = await supabase
+        .from('mentors')
+        .delete()
+        .eq('email', user.email);
+      if (mentorError) {
+        console.error('Error deleting from mentors table:', mentorError);
+      }
+    } else if (user.role === 'Student') {
+      const { error: studentError } = await supabase
+        .from('students')
+        .delete()
+        .eq('email', user.email);
+      if (studentError) {
+        console.error('Error deleting from students table:', studentError);
+      }
     }
 
     await logSecurityAudit(
@@ -613,7 +679,7 @@ export default function UsersView() {
             <Download className="w-4 h-4" />
             <span>Export CSV</span>
           </button>
-          {canCreate && (
+          {/* {canCreate && (
             <button
               onClick={handleOpenInviteModal}
               className="flex items-center gap-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
@@ -621,7 +687,7 @@ export default function UsersView() {
               <Plus className="w-4 h-4" />
               <span>Invite New User</span>
             </button>
-          )}
+          )} */}
         </div>
       </div>
 
@@ -726,8 +792,8 @@ export default function UsersView() {
                   <tr
                     key={user.id}
                     className={`transition-colors ${isSelected
-                        ? 'bg-blue-50/20 dark:bg-blue-900/10'
-                        : 'hover:bg-slate-50/50 dark:hover:bg-slate-750/30'
+                      ? 'bg-blue-50/20 dark:bg-blue-900/10'
+                      : 'hover:bg-slate-50/50 dark:hover:bg-slate-750/30'
                       }`}
                   >
                     <td className="px-5 py-4 w-10">
@@ -741,12 +807,7 @@ export default function UsersView() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <img
-                          src={user.avatar}
-                          alt={user.name}
-                          referrerPolicy="no-referrer"
-                          className="w-9 h-9 rounded-lg object-cover ring-2 ring-slate-100 dark:ring-slate-700 shrink-0"
-                        />
+                        <UserAvatar src={user.avatar} name={user.name} />
                         <div className="flex flex-col min-w-0">
                           <span className="font-bold text-slate-800 dark:text-white truncate">{user.name}</span>
                           <span className="text-[10px] text-slate-400 truncate">{user.email}</span>
@@ -760,12 +821,12 @@ export default function UsersView() {
                     </td>
                     <td className="px-5 py-4">
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${user.role === 'Super Admin'
-                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400'
-                          : user.role === 'Organization Admin'
-                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400'
-                            : user.role === 'Mentor'
-                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-950/20 dark:text-teal-400'
-                              : 'bg-slate-100 text-slate-700 dark:bg-slate-750/50 dark:text-slate-300'
+                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400'
+                        : user.role === 'Organization Admin'
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400'
+                          : user.role === 'Mentor'
+                            ? 'bg-teal-100 text-teal-700 dark:bg-teal-950/20 dark:text-teal-400'
+                            : 'bg-slate-100 text-slate-700 dark:bg-slate-750/50 dark:text-slate-300'
                         }`}>
                         {user.role}
                       </span>
@@ -780,10 +841,10 @@ export default function UsersView() {
                       <button
                         onClick={() => handleToggleStatus(user.id)}
                         className={`px-2 py-0.5 rounded-full font-bold text-[9px] flex items-center gap-1 cursor-pointer hover:opacity-85 transition-all ${user.status === 'Active'
-                            ? 'bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400'
-                            : user.status === 'Pending'
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
-                              : 'bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400'
+                          ? 'bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400'
+                          : user.status === 'Pending'
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
+                            : 'bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400'
                           }`}
                       >
                         <span className={`w-1.2 h-1.2 rounded-full inline-block ${user.status === 'Active' ? 'bg-green-500' : user.status === 'Pending' ? 'bg-amber-500' : 'bg-red-500'
@@ -851,8 +912,8 @@ export default function UsersView() {
                   key={page}
                   onClick={() => setCurrentPage(page)}
                   className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${currentPage === page
-                      ? 'bg-blue-600 text-white'
-                      : 'hover:bg-slate-150 text-slate-600'
+                    ? 'bg-blue-600 text-white'
+                    : 'hover:bg-slate-150 text-slate-600'
                     }`}
                 >
                   {page}

@@ -24,7 +24,8 @@ import {
   Menu,
   ChevronLeft,
   ChevronRight,
-  LogOut
+  LogOut,
+  UserCheck
 } from 'lucide-react';
 
 import { useState, useEffect } from 'react';
@@ -93,6 +94,7 @@ export default function Sidebar({
     { id: 'organizations', label: 'Organizations', icon: Building2, permission: () => currentUser?.role === 'Super Admin' },
     { id: 'users', label: 'Users', icon: Users, permission: () => hasPermission('User and Role Management', 'read') },
     { id: 'mentors', label: 'Mentors', icon: GraduationCap, permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
+    { id: 'assistants', label: 'Assistants', icon: UserCheck, permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
     { id: 'students', label: 'Students', icon: GraduationCap, badge: studentCount !== null ? String(studentCount) : undefined, permission: () => currentUser?.role !== 'Student' },
     { id: 'assignments', label: 'Assignments', icon: Link2, isFeature: true, permission: () => hasPermission('Mentor Assignments', 'read') },
     { id: 'calendar', label: 'Calendar', icon: Calendar, permission: () => hasPermission('Session Scheduling', 'read') },

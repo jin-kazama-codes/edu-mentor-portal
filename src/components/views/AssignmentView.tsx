@@ -325,12 +325,18 @@ export default function AssignmentView({ selectedOrg = 'All Organizations' }: As
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <img
-                        src={mentor.avatar}
-                        alt={mentor.name}
-                        referrerPolicy="no-referrer"
-                        className="w-10 h-10 rounded-xl object-cover ring-2 ring-white shrink-0"
-                      />
+                      {mentor.avatar ? (
+                        <img
+                          src={mentor.avatar}
+                          alt={mentor.name}
+                          referrerPolicy="no-referrer"
+                          className="w-10 h-10 rounded-xl object-cover ring-2 ring-white shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-700 ring-2 ring-white flex items-center justify-center text-slate-400 dark:text-slate-500 font-extrabold text-xs select-none shrink-0">
+                          {mentor.name.trim().charAt(0).toUpperCase()}
+                        </div>
+                      )}
                       <div>
                         <h4 className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
                           <span>{mentor.name}</span>

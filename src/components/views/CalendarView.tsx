@@ -58,8 +58,20 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
       
       if (currentUser.role === 'Mentor') {
         query = query.eq('mentor', currentUser.name);
-      } else if (currentUser.role === 'Assistant' && currentUser.mentorName) {
-        query = query.eq('mentor', currentUser.mentorName);
+      } else if (currentUser.role === 'Assistant') {
+        let mentorName = currentUser.mentorName;
+        // Fallback: resolve mentorName via RPC if not set at login time
+        if (!mentorName && currentUser.mentor_id) {
+          const { data: resolved } = await supabase
+            .rpc('get_assistant_mentor_name', { assistant_mentor_id: currentUser.mentor_id });
+          if (resolved) mentorName = resolved;
+        }
+        if (!mentorName) {
+          const { data: resolved } = await supabase
+            .rpc('get_mentor_name_for_assistant_email', { assistant_email: currentUser.email });
+          if (resolved) mentorName = resolved;
+        }
+        if (mentorName) query = query.eq('mentor', mentorName);
       } else if (currentUser.role === 'Student') {
         query = query.eq('student', currentUser.name);
       }
@@ -71,6 +83,7 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
     }
     loadData();
   }, [currentUser, selectedOrg]);
+
 
   // Book Slot Modal State
   const [showBookModal, setShowBookModal] = useState<boolean>(false);

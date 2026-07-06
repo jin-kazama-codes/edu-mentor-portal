@@ -72,6 +72,10 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
 
   const [showSubjectDropdown, setShowSubjectDropdown] = useState<boolean>(false);
 
+  const [formAvatarFile, setFormAvatarFile] = useState<File | null>(null);
+  const [formAvatarPreview, setFormAvatarPreview] = useState<string>('');
+  const [formPassword, setFormPassword] = useState<string>('');
+
   // Reset form when modal is closed
   useEffect(() => {
     if (!showAddMentorModal) {
@@ -81,12 +85,40 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       setFormPhone('');
       setFormGender('');
       setFormAvatar('');
+      setFormAvatarFile(null);
+      setFormAvatarPreview('');
+      setFormPassword('');
       setFormSubjects(['Mathematics']);
       setFormExperience('4 Years');
       setFormAvailability('Full-time');
       setFormPerformance('Exceeding');
     }
   }, [showAddMentorModal]);
+
+  const toBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert('File size exceeds the 2MB limit. Please select a smaller image.');
+        return;
+      }
+      setFormAvatarFile(file);
+      setFormAvatarPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setFormAvatarFile(null);
+    setFormAvatarPreview('');
+  };
 
   const canUpdate = hasPermission('User and Role Management', 'update');
 
@@ -198,6 +230,10 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       alert('Please select a gender');
       return;
     }
+    if (!formPassword.trim()) {
+      alert('Please enter a password');
+      return;
+    }
     if (formSubjects.length === 0) {
       alert('Please select at least one subject');
       return;
@@ -212,7 +248,47 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       : currentUser.organization;
 
     const newUserId = `usr-${Date.now()}`;
-    const hashedPassword = await hashPassword('Password@123'); // Default password for new mentors
+    const hashedPassword = await hashPassword(formPassword);
+
+    let uploadedAvatarUrl = '';
+
+    if (formAvatarFile) {
+      try {
+        const fileExt = formAvatarFile.name.split('.').pop();
+        const fileName = `avatar-${Date.now()}.${fileExt}`;
+        const filePath = fileName;
+
+        try {
+          await supabase.storage.createBucket('avatars', { public: true });
+        } catch (bucketErr) {
+          console.log('Bucket check/creation failed:', bucketErr);
+        }
+
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, formAvatarFile, {
+            cacheControl: '3600',
+            upsert: true
+          });
+
+        if (uploadErr) {
+          console.warn('Supabase storage upload error, falling back to Base64:', uploadErr.message);
+          uploadedAvatarUrl = await toBase64(formAvatarFile);
+        } else if (uploadData) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(filePath);
+          uploadedAvatarUrl = publicUrl;
+        }
+      } catch (err: any) {
+        console.error('Storage error, falling back to Base64:', err);
+        try {
+          uploadedAvatarUrl = await toBase64(formAvatarFile);
+        } catch (base64Err) {
+          console.error('Base64 fallback failed:', base64Err);
+        }
+      }
+    }
 
     const newUser: User = {
       id: newUserId,
@@ -221,7 +297,7 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       role: 'Mentor',
       organization: resolvedOrg,
       status: 'Active',
-      avatar: formAvatar || `https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80`,
+      avatar: uploadedAvatarUrl,
       createdDate: new Date().toISOString().split('T')[0],
       lastLogin: 'Never',
       number: formPhone,
@@ -249,7 +325,7 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       availability: formAvailability,
       upcomingSessions: 0,
       performance: formPerformance,
-      avatar: formAvatar || `https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80`,
+      avatar: uploadedAvatarUrl,
       organization: resolvedOrg
     };
 
@@ -355,12 +431,18 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
             {/* Inner Header / Photo Banner */}
             <div className="p-4 border-b border-slate-50 dark:border-slate-700/60 bg-slate-50/30 dark:bg-slate-900/10">
               <div className="flex gap-3">
-                <img
-                  src={mentor.avatar}
-                  alt={mentor.name}
-                  referrerPolicy="no-referrer"
-                  className="w-14 h-14 rounded-xl object-cover ring-2 ring-white shadow-md group-hover:scale-102 transition-transform shrink-0"
-                />
+                {mentor.avatar ? (
+                  <img
+                    src={mentor.avatar}
+                    alt={mentor.name}
+                    referrerPolicy="no-referrer"
+                    className="w-14 h-14 rounded-xl object-cover ring-2 ring-white shadow-md group-hover:scale-102 transition-transform shrink-0"
+                  />
+                ) : (
+                  <div className="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-700 ring-2 ring-white shadow-md group-hover:scale-102 transition-transform shrink-0 flex items-center justify-center text-slate-400 dark:text-slate-555 font-extrabold text-lg select-none">
+                    {mentor.name.trim().charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <h3 className="font-extrabold text-slate-800 dark:text-white text-sm truncate flex items-center gap-1.5">
                     <span>{mentor.name}</span>
@@ -502,12 +584,18 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                     <X className="w-4.5 h-4.5" />
                   </button>
                   <div className="flex gap-4 items-center">
-                    <img
-                      src={selectedMentorProfile.avatar}
-                      alt={selectedMentorProfile.name}
-                      referrerPolicy="no-referrer"
-                      className="w-16 h-16 rounded-xl object-cover ring-2 ring-white/30"
-                    />
+                    {selectedMentorProfile.avatar ? (
+                      <img
+                        src={selectedMentorProfile.avatar}
+                        alt={selectedMentorProfile.name}
+                        referrerPolicy="no-referrer"
+                        className="w-16 h-16 rounded-xl object-cover ring-2 ring-white/30"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-xl bg-slate-700 ring-2 ring-white/30 flex items-center justify-center text-slate-300 font-extrabold text-xl select-none">
+                        {selectedMentorProfile.name.trim().charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div>
                       <div className="flex items-center gap-2">
                         <h2 className="text-lg font-black tracking-tight">{selectedMentorProfile.name}</h2>
@@ -844,7 +932,42 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                 {/* Form */}
                 <form onSubmit={handleAddMentorSubmit}>
                   <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Image Uploader */}
+                    <div className="flex flex-col items-center justify-center pb-2 border-b border-slate-100 dark:border-slate-750">
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-2">Mentor Avatar</label>
+                      <div className="relative group cursor-pointer">
+                        <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 transition-colors flex items-center justify-center bg-slate-50 dark:bg-slate-900 relative shadow-inner">
+                          {formAvatarPreview ? (
+                            <img src={formAvatarPreview} alt="Avatar Preview" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-550 p-2 text-center">
+                              <Plus className="w-6 h-6 mb-0.5" />
+                              <span className="text-[9px] font-bold">Upload</span>
+                            </div>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleAvatarChange}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          />
+                        </div>
+                        {formAvatarPreview && (
+                          <button
+                            type="button"
+                            onClick={handleRemoveAvatar}
+                            className="absolute -top-1 -right-1 bg-red-500 hover:bg-red-650 text-white rounded-full p-1 shadow-md transition-colors cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-1.5 text-center">
+                        Supports PNG, JPG, or GIF (Max 2MB)
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans">
                       <div>
                         <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Mentor Name</label>
                         <input
@@ -986,6 +1109,18 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                           </div>
                         )}
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Password</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Enter password for login"
+                        value={formPassword}
+                        onChange={(e) => setFormPassword(e.target.value)}
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 font-sans"
+                      />
                     </div>
                   </div>
 
