@@ -44,24 +44,104 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
 
-  // Compute the Monday of the currently-displayed week (offset in weeks from today)
-  const [weekOffset, setWeekOffset] = useState(0);
-  const getWeekMonday = (offset: number): Date => {
-    const today = new Date();
-    const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon, ...
-    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + diffToMonday + offset * 7);
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+
+  const formatDate = (date: Date): string => {
+    const yr = date.getFullYear();
+    const mo = String(date.getMonth() + 1).padStart(2, '0');
+    const dt = String(date.getDate()).padStart(2, '0');
+    return `${yr}-${mo}-${dt}`;
+  };
+
+  const getMonday = (d: Date): Date => {
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d);
+    monday.setDate(diff);
     monday.setHours(0, 0, 0, 0);
     return monday;
   };
-  const currentWeekMonday = getWeekMonday(weekOffset);
+
+  const currentWeekMonday = getMonday(currentDate);
+
+  const getMonthDays = (d: Date) => {
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    
+    // First day of the month
+    const firstDay = new Date(year, month, 1);
+    // Day of the week (0 = Sun, 1 = Mon, ..., 6 = Sat)
+    const startDayOfWeek = firstDay.getDay(); 
+    
+    // Number of padding days from previous month
+    // We want Monday (1) to be index 0, Tuesday (2) to be index 1, ..., Sunday (0) to be index 6
+    const paddingDaysCount = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1;
+    
+    const days = [];
+    
+    // Get padding days from previous month
+    const prevMonthLastDay = new Date(year, month, 0).getDate();
+    for (let i = paddingDaysCount - 1; i >= 0; i--) {
+      const dateVal = new Date(year, month - 1, prevMonthLastDay - i);
+      days.push({
+        date: dateVal,
+        isCurrentMonth: false,
+        dayNum: dateVal.getDate()
+      });
+    }
+    
+    // Get days of current month
+    const currentMonthLastDay = new Date(year, month + 1, 0).getDate();
+    for (let i = 1; i <= currentMonthLastDay; i++) {
+      const dateVal = new Date(year, month, i);
+      days.push({
+        date: dateVal,
+        isCurrentMonth: true,
+        dayNum: i
+      });
+    }
+    
+    // Get padding days from next month to make total days a multiple of 7
+    const remainingDays = 42 - days.length; // 6 rows of 7 days = 42
+    for (let i = 1; i <= remainingDays; i++) {
+      const dateVal = new Date(year, month + 1, i);
+      days.push({
+        date: dateVal,
+        isCurrentMonth: false,
+        dayNum: i
+      });
+    }
+    
+    return days;
+  };
+
   const [sessionsList, setSessionsList] = useState<Session[]>([]);
 
   useEffect(() => {
     if (!currentUser) return;
     async function loadData() {
-      let query = supabase.from('sessions').select('*').order('date', { ascending: false });
+      let startDateStr = '';
+      let endDateStr = '';
+
+      if (view === 'weekly') {
+        const monday = getMonday(currentDate);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        startDateStr = formatDate(monday);
+        endDateStr = formatDate(sunday);
+      } else {
+        const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+        startDateStr = formatDate(startOfMonth);
+        endDateStr = formatDate(endOfMonth);
+      }
+
+      let query = supabase
+        .from('sessions')
+        .select('*')
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
+        .order('date', { ascending: true });
       
       const orgToFilter = currentUser.role === 'Super Admin'
         ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
@@ -96,7 +176,7 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
       }
     }
     loadData();
-  }, [currentUser, selectedOrg]);
+  }, [currentUser, selectedOrg, view, currentDate]);
 
 
   // Book Slot Modal State
@@ -304,10 +384,15 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
     return { name: DAY_NAMES[i], label, date: displayDate, fullDate: d };
   });
 
-  // Formatted header range label: "July 6 - July 12, 2026"
-  const weekEndDate = new Date(currentWeekMonday);
-  weekEndDate.setDate(currentWeekMonday.getDate() + 6);
-  const rangeLabel = `${currentWeekMonday.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${weekEndDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+  // Formatted header range label based on current view
+  let rangeLabel = '';
+  if (view === 'weekly') {
+    const weekEndDate = new Date(currentWeekMonday);
+    weekEndDate.setDate(currentWeekMonday.getDate() + 6);
+    rangeLabel = `${currentWeekMonday.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} - ${weekEndDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+  } else {
+    rangeLabel = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
 
   // Helper: map index to colors
   const getCategoryColor = (cat: Session['category']) => {
@@ -368,14 +453,42 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
         {/* Navigation buttons */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setWeekOffset(prev => prev - 1)}
+            onClick={() => {
+              if (view === 'weekly') {
+                setCurrentDate(prev => {
+                  const d = new Date(prev);
+                  d.setDate(d.getDate() - 7);
+                  return d;
+                });
+              } else {
+                setCurrentDate(prev => {
+                  const d = new Date(prev);
+                  d.setMonth(d.getMonth() - 1);
+                  return d;
+                });
+              }
+            }}
             className="p-1.5 border border-slate-200 dark:border-slate-750 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4 text-slate-500" />
           </button>
           <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{rangeLabel}</span>
           <button
-            onClick={() => setWeekOffset(prev => prev + 1)}
+            onClick={() => {
+              if (view === 'weekly') {
+                setCurrentDate(prev => {
+                  const d = new Date(prev);
+                  d.setDate(d.getDate() + 7);
+                  return d;
+                });
+              } else {
+                setCurrentDate(prev => {
+                  const d = new Date(prev);
+                  d.setMonth(d.getMonth() + 1);
+                  return d;
+                });
+              }
+            }}
             className="p-1.5 border border-slate-200 dark:border-slate-750 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
           >
             <ChevronRight className="w-4 h-4 text-slate-500" />
@@ -403,72 +516,139 @@ export default function CalendarView({ defaultBookOpen = false, selectedOrg = 'A
         </div>
       </div>
 
-      {/* Weekly Schedule Layout (Default) */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="grid grid-cols-1 md:grid-cols-7 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
-          {weekDays.map((day) => {
-            // Compute ISO date string (yyyy-mm-dd) for this day to match session records
-            const fd = day.fullDate;
-            const yr = fd.getFullYear();
-            const mo = String(fd.getMonth() + 1).padStart(2, '0');
-            const dt = String(fd.getDate()).padStart(2, '0');
-            const formattedDateStr = `${yr}-${mo}-${dt}`;
+      {view === 'weekly' ? (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-7 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
+            {weekDays.map((day) => {
+              // Compute ISO date string (yyyy-mm-dd) for this day to match session records
+              const fd = day.fullDate;
+              const yr = fd.getFullYear();
+              const mo = String(fd.getMonth() + 1).padStart(2, '0');
+              const dt = String(fd.getDate()).padStart(2, '0');
+              const formattedDateStr = `${yr}-${mo}-${dt}`;
 
-            // Highlight today
-            const todayStr = new Date().toISOString().split('T')[0];
-            const isToday = formattedDateStr === todayStr;
+              // Highlight today
+              const todayStr = new Date().toISOString().split('T')[0];
+              const isToday = formattedDateStr === todayStr;
 
-            const daySessions = filteredSessions.filter((s) => s.date === formattedDateStr);
+              const daySessions = filteredSessions.filter((s) => s.date === formattedDateStr);
 
-            return (
-              <div key={day.name} className="min-h-[220px] md:min-h-[480px] flex flex-col">
-                {/* Day Header */}
-                <div className={`p-3 border-b border-slate-100 dark:border-slate-800 text-center flex md:flex-col justify-between md:justify-center items-center gap-1 shrink-0 ${isToday ? 'bg-blue-50 dark:bg-blue-950/20' : 'bg-slate-50/50 dark:bg-slate-900/30'}`}>
-                  <span className={`text-[10px] uppercase font-bold tracking-wider ${isToday ? 'text-blue-500' : 'text-slate-400'}`}>{day.label}</span>
-                  <span className={`text-xs font-black ${isToday ? 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 rounded-full w-6 h-6 flex items-center justify-center mx-auto text-[10px]' : 'text-slate-700 dark:text-white'}`}>
-                    {fd.getDate()}
-                  </span>
-                </div>
+              return (
+                <div key={day.name} className="min-h-[220px] md:min-h-[480px] flex flex-col">
+                  {/* Day Header */}
+                  <div className={`p-3 border-b border-slate-100 dark:border-slate-800 text-center flex md:flex-col justify-between md:justify-center items-center gap-1 shrink-0 ${isToday ? 'bg-blue-50 dark:bg-blue-950/20' : 'bg-slate-50/50 dark:bg-slate-900/30'}`}>
+                    <span className={`text-[10px] uppercase font-bold tracking-wider ${isToday ? 'text-blue-500' : 'text-slate-400'}`}>{day.label}</span>
+                    <span className={`text-xs font-black ${isToday ? 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 rounded-full w-6 h-6 flex items-center justify-center mx-auto text-[10px]' : 'text-slate-700 dark:text-white'}`}>
+                      {fd.getDate()}
+                    </span>
+                  </div>
 
-                {/* Day Sessions List */}
-                <div className="p-2.5 space-y-2.5 flex-1 overflow-y-auto bg-slate-50/20 dark:bg-slate-900/5">
-                  {daySessions.slice(0, 3).map((sess) => (
-                    <motion.div
-                      key={sess.id}
-                      onClick={() => setSelectedSession(sess)}
-                      whileHover={{ scale: 1.02 }}
-                      className={`p-2.5 rounded-xl border cursor-pointer transition-shadow shadow-xs hover:shadow-md flex flex-col justify-between text-left relative overflow-hidden bg-white dark:bg-slate-850 ${getCategoryColor(
-                        sess.category
-                      )}`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className="text-[8px] font-bold uppercase truncate max-w-[80px]">{sess.category}</span>
-                          <span className={`w-1.5 h-1.5 rounded-full ${sess.status === 'Completed' ? 'bg-green-500' : sess.status === 'Upcoming' ? 'bg-blue-500' : 'bg-red-500'}`} />
+                  {/* Day Sessions List */}
+                  <div className="p-2.5 space-y-2.5 flex-1 overflow-y-auto bg-slate-50/20 dark:bg-slate-900/5">
+                    {daySessions.slice(0, 3).map((sess) => (
+                      <motion.div
+                        key={sess.id}
+                        onClick={() => setSelectedSession(sess)}
+                        whileHover={{ scale: 1.02 }}
+                        className={`p-2.5 rounded-xl border cursor-pointer transition-shadow shadow-xs hover:shadow-md flex flex-col justify-between text-left relative overflow-hidden bg-white dark:bg-slate-850 ${getCategoryColor(
+                          sess.category
+                        )}`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-[8px] font-bold uppercase truncate max-w-[80px]">{sess.category}</span>
+                            <span className={`w-1.5 h-1.5 rounded-full ${sess.status === 'Completed' ? 'bg-green-500' : sess.status === 'Upcoming' ? 'bg-blue-500' : 'bg-red-500'}`} />
+                          </div>
+                          <h4 className="text-xs font-extrabold text-slate-800 dark:text-white leading-tight truncate">
+                            {sess.student}
+                          </h4>
+                          <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5">Tutor: {sess.mentor.split(' ')[0]}</p>
                         </div>
-                        <h4 className="text-xs font-extrabold text-slate-800 dark:text-white leading-tight truncate">
-                          {sess.student}
-                        </h4>
-                        <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5">Tutor: {sess.mentor.split(' ')[0]}</p>
-                      </div>
 
-                      <div className="flex items-center gap-1 text-[9px] text-slate-500 mt-2 font-mono">
-                        <Clock className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span>{sess.time}</span>
+                        <div className="flex items-center gap-1 text-[9px] text-slate-500 mt-2 font-mono">
+                          <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{sess.time}</span>
+                        </div>
+                      </motion.div>
+                    ))}
+                    {daySessions.length === 0 && (
+                      <div className="h-full flex items-center justify-center text-center p-4">
+                        <span className="text-[10px] text-slate-300 dark:text-slate-500 font-semibold font-mono">Free Slot</span>
                       </div>
-                    </motion.div>
-                  ))}
-                  {daySessions.length === 0 && (
-                    <div className="h-full flex items-center justify-center text-center p-4">
-                      <span className="text-[10px] text-slate-300 dark:text-slate-500 font-semibold font-mono">Free Slot</span>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+          {/* Calendar Grid Header for Monthly view */}
+          <div className="grid grid-cols-7 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 text-center py-2 text-[10px] uppercase font-bold tracking-wider text-slate-400">
+            {DAY_LABELS.map((lbl) => (
+              <span key={lbl}>
+                {lbl}
+              </span>
+            ))}
+          </div>
+          {/* Calendar Day Cells */}
+          <div className="grid grid-cols-7 gap-px bg-slate-100 dark:bg-slate-800">
+            {getMonthDays(currentDate).map((day, idx) => {
+              const formattedDateStr = formatDate(day.date);
+              const todayStr = formatDate(new Date());
+              const isToday = formattedDateStr === todayStr;
+              
+              const daySessions = filteredSessions.filter((s) => s.date === formattedDateStr);
+
+              return (
+                <div
+                  key={idx}
+                  className={`min-h-[85px] md:min-h-[110px] bg-white dark:bg-slate-850 p-1.5 flex flex-col justify-between ${
+                    day.isCurrentMonth
+                      ? 'text-slate-800 dark:text-slate-100'
+                      : 'text-slate-300 dark:text-slate-600 bg-slate-50/30 dark:bg-slate-900/10'
+                  } ${isToday ? 'ring-2 ring-blue-500 ring-inset dark:ring-blue-600' : ''}`}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span
+                      className={`text-xs font-bold font-mono rounded-full w-5 h-5 flex items-center justify-center ${
+                        isToday
+                          ? 'bg-blue-600 text-white font-black'
+                          : day.isCurrentMonth
+                          ? 'text-slate-700 dark:text-slate-200'
+                          : 'text-slate-300 dark:text-slate-600'
+                      }`}
+                    >
+                      {day.dayNum}
+                    </span>
+                    {daySessions.length > 0 && (
+                      <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1 rounded">
+                        {daySessions.length}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-1 overflow-y-auto">
+                    {daySessions.slice(0, 3).map((sess) => (
+                      <div
+                        key={sess.id}
+                        onClick={() => setSelectedSession(sess)}
+                        className={`px-1 py-0.5 rounded text-[8px] font-bold truncate cursor-pointer hover:shadow-xs transition-shadow border text-left ${getCategoryColor(
+                          sess.category
+                        )}`}
+                        title={`${sess.student} - ${sess.category}`}
+                      >
+                        {sess.student.split(',')[0]}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Interactive Session Details Modal */}
       <AnimatePresence>
