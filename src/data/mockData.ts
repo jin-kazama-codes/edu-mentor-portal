@@ -602,7 +602,7 @@ export const permissionsData: PermissionMatrix[] = [
       'Super Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
       'Organization Admin': { create: true, read: true, update: true, delete: true, approve: true, export: true, assign: true },
       'Mentor': { create: true, read: true, update: true, delete: false, approve: true, export: false, assign: false },
-      'Assistant': { create: false, read: true, update: false, delete: false, approve: false, export: false, assign: false },
+      'Assistant': { create: true, read: true, update: true, delete: false, approve: false, export: false, assign: false },
       'Student': { create: false, read: true, update: false, delete: false, approve: false, export: false, assign: false }
     }
   },

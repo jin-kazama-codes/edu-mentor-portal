@@ -40,6 +40,7 @@ function MainApp() {
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
   const [selectedOrg, setSelectedOrg] = useState<string>('All Organizations');
   const [quickActionTrigger, setQuickActionTrigger] = useState<{ action: string; timestamp: number } | null>(null);
+  const [preselectedStudent, setPreselectedStudent] = useState<string | null>(null);
 
   // Dynamic organization mapping based on logged-in user context
   useEffect(() => {
@@ -84,7 +85,17 @@ function MainApp() {
       case 'assistants':
         return <AssistantsView selectedOrg={selectedOrg} />;
       case 'students':
-        return <StudentsView defaultAddOpen={quickActionTrigger?.action === 'add_student'} selectedOrg={selectedOrg} />;
+        return (
+          <StudentsView
+            defaultAddOpen={quickActionTrigger?.action === 'add_student'}
+            selectedOrg={selectedOrg}
+            onNavigate={(tab) => handleTabChange(tab)}
+            onEvaluate={(studentName) => {
+              setPreselectedStudent(studentName);
+              handleTabChange('evaluations');
+            }}
+          />
+        );
       case 'assignment':
       case 'assignments':
         return <AssignmentView selectedOrg={selectedOrg} />;
@@ -93,7 +104,13 @@ function MainApp() {
       case 'sessions':
         return <SessionsView selectedOrg={selectedOrg} />;
       case 'evaluations':
-        return <EvaluationsView selectedOrg={selectedOrg} />;
+        return (
+          <EvaluationsView
+            selectedOrg={selectedOrg}
+            preselectedStudent={preselectedStudent}
+            clearPreselected={() => setPreselectedStudent(null)}
+          />
+        );
       case 'library':
         return <ContentLibraryView selectedOrg={selectedOrg} />;
       case 'messaging':
@@ -128,7 +145,7 @@ function MainApp() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex transition-colors duration-200">
-      
+
       {/* Collapsible desktop Sidebar + drawer mobile */}
       <Sidebar
         activeTab={activeTab}
@@ -142,7 +159,7 @@ function MainApp() {
 
       {/* Main Container */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
-        
+
         {/* Top Navbar */}
         <TopNav
           activeTab={activeTab}

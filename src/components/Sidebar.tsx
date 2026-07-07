@@ -90,6 +90,7 @@ export default function Sidebar({
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'evaluations', label: 'My Report Card', icon: FileSpreadsheet, permission: () => currentUser?.role === 'Student' },
     { id: 'organizations', label: 'Organizations', icon: Building2, permission: () => currentUser?.role === 'Super Admin' },
     { id: 'users', label: 'Users', icon: Users, permission: () => hasPermission('User and Role Management', 'read') },
     { id: 'mentors', label: 'Mentors', icon: GraduationCap, permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },

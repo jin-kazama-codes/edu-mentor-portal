@@ -402,10 +402,29 @@ export function CustomBarChart({ data, xAxisKey, series }: CustomChartProps) {
   );
 }
 
-export function CustomRadarChart() {
-  // Hardcoded gorgeous Radar chart for evaluation presentations (academic vs behavior vs attendance etc)
+interface CustomRadarChartProps {
+  academic?: number;
+  attendance?: number;
+  behaviour?: number;
+  communication?: number;
+}
+
+export function CustomRadarChart({
+  academic = 85,
+  attendance = 95,
+  behaviour = 90,
+  communication = 82
+}: CustomRadarChartProps) {
+  // Map parameters to categories
   const categories = ['Academics', 'Attendance', 'Focus', 'Homework', 'Collaboration', 'Expression'];
-  const data = [85, 95, 78, 92, 88, 80]; // Aadil Bhat/Zoya Khan's evaluations
+  const data = [
+    academic,
+    attendance,
+    behaviour,
+    Math.min(100, Math.max(0, Math.round(academic * 0.95))),
+    communication,
+    Math.min(100, Math.max(0, Math.round(communication * 0.9)))
+  ];
 
   const size = 200;
   const center = size / 2;

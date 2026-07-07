@@ -38,9 +38,16 @@ import { hashPassword } from '../../utils/crypto';
 interface StudentsViewProps {
   defaultAddOpen?: boolean;
   selectedOrg?: string;
+  onNavigate?: (tab: string) => void;
+  onEvaluate?: (studentName: string) => void;
 }
 
-export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'All Organizations' }: StudentsViewProps) {
+export default function StudentsView({ 
+  defaultAddOpen = false, 
+  selectedOrg = 'All Organizations',
+  onNavigate,
+  onEvaluate
+}: StudentsViewProps) {
   const { currentUser, hasPermission, logSecurityAudit } = useAuth();
   const [data, setData] = useState<Student[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -557,7 +564,15 @@ export default function StudentsView({ defaultAddOpen = false, selectedOrg = 'Al
               <span className="text-[10px] text-slate-400 font-mono">ID: {stud.id.toUpperCase()}</span>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setSelectedStudent(stud)}
+                  onClick={() => {
+                    if (onEvaluate) {
+                      onEvaluate(stud.name);
+                    } else if (onNavigate) {
+                      onNavigate('evaluations');
+                    } else {
+                      setSelectedStudent(stud);
+                    }
+                  }}
                   className="px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-500 dark:text-slate-300 rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
                 >
                   Evaluations
