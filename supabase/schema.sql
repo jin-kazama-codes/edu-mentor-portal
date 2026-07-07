@@ -149,10 +149,12 @@ CREATE TABLE payments (
   status TEXT NOT NULL CHECK (status IN ('Paid', 'Pending', 'Failed', 'Refunded')),
   date TEXT NOT NULL,
   "invoiceNumber" TEXT NOT NULL,
-  plan TEXT NOT NULL CHECK (plan IN ('Monthly Pro', 'Annual Elite', 'Quarterly Basic', 'One-Time Session')),
+  description TEXT NOT NULL DEFAULT '',  -- Free-text payment purpose (e.g. Monthly Fee, Exam Fee, Book Charges)
+  plan TEXT,                             -- Legacy field, kept for backwards compatibility
   "refundAmount" NUMERIC,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
 
 -- 9. Audit Logs table
 CREATE TABLE audit_logs (

@@ -124,7 +124,8 @@ export interface Payment {
   status: 'Paid' | 'Pending' | 'Failed' | 'Refunded';
   date: string;
   invoiceNumber: string;
-  plan: 'Monthly Pro' | 'Annual Elite' | 'Quarterly Basic' | 'One-Time Session';
+  description: string;  // Free-text, e.g. 'Monthly Fee', 'Book charges', 'Exam fee'
+  plan?: string;        // Legacy compat only
   refundAmount?: number;
 }
 

@@ -461,7 +461,7 @@ chatMessages['c-5'] = [
 // 7. PAYMENTS (100+ items)
 // ==========================================
 export const payments: Payment[] = [];
-const paymentPlans: Payment['plan'][] = ['Monthly Pro', 'Annual Elite', 'Quarterly Basic', 'One-Time Session'];
+const paymentPlans = ['Monthly Pro', 'Annual Elite', 'Quarterly Basic', 'One-Time Session'];
 const statuses: Payment['status'][] = ['Paid', 'Pending', 'Failed', 'Refunded'];
 
 // Generate 105 payments programmatically
@@ -488,6 +488,7 @@ for (let i = 0; i < 105; i++) {
     status,
     date: formattedDate,
     invoiceNumber: `INV-2026-${8400 + i}`,
+    description: plan,  // use the plan name as description for existing mock data
     plan,
     refundAmount: status === 'Refunded' ? amount : undefined
   });
