@@ -19,7 +19,10 @@ import {
   Ban,
   CheckCircle,
   MoreVertical,
-  X
+  X,
+  Users,
+  Award,
+  Percent
 } from 'lucide-react';
 import { organizations as fallbackOrgs } from '../../data/mockData';
 import { Organization } from '../../types';
@@ -242,31 +245,74 @@ export default function OrganizationsView() {
         const activeCount = data.filter((o) => o.status === 'Active').length;
         const renewalRate = totalTenants > 0 ? Math.round((activeCount / totalTenants) * 100) : 0;
         return (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Total Tenants</span>
-              <h4 className="text-lg font-black text-slate-800 dark:text-white mt-1">
-                {totalTenants === 0 ? '—' : `${totalTenants} Registered`}
-              </h4>
-            </div>
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Active Enrollment</span>
-              <h4 className="text-lg font-black text-teal-600 mt-1">
-                {totalTenants === 0 ? '—' : `${totalEnrolled.toLocaleString()} Enrolled`}
-              </h4>
-            </div>
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Enterprise Tiers</span>
-              <h4 className="text-lg font-black text-blue-500 mt-1">
-                {totalTenants === 0 ? '—' : `${enterpriseCount} ${enterpriseCount === 1 ? 'Institute' : 'Institutes'}`}
-              </h4>
-            </div>
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Avg Renewal Rate</span>
-              <h4 className="text-lg font-black text-indigo-500 mt-1">
-                {totalTenants === 0 ? '—' : `${renewalRate}% Rate`}
-              </h4>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {/* Card 1: Total Tenants */}
+            <motion.div
+              whileHover={{ y: -4 }}
+              className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-blue-600 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+            >
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Total Tenants</span>
+                <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
+                  {totalTenants === 0 ? '—' : totalTenants}
+                </span>
+                <span className="text-[9px] text-blue-500 font-bold block">Registered Tenants</span>
+              </div>
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+                <Building2 className="w-5 h-5" />
+              </div>
+            </motion.div>
+
+            {/* Card 2: Active Enrollment */}
+            <motion.div
+              whileHover={{ y: -4 }}
+              className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-teal-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+            >
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Active Enrollment</span>
+                <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
+                  {totalTenants === 0 ? '—' : totalEnrolled.toLocaleString()}
+                </span>
+                <span className="text-[9px] text-teal-500 font-bold block">Enrolled Students</span>
+              </div>
+              <div className="p-3 bg-teal-50 dark:bg-teal-950/30 rounded-xl text-teal-650 dark:text-teal-400 group-hover:scale-110 transition-transform">
+                <Users className="w-5 h-5" />
+              </div>
+            </motion.div>
+
+            {/* Card 3: Enterprise Tiers */}
+            <motion.div
+              whileHover={{ y: -4 }}
+              className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-indigo-600 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+            >
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Enterprise Tiers</span>
+                <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
+                  {totalTenants === 0 ? '—' : enterpriseCount}
+                </span>
+                <span className="text-[9px] text-indigo-500 font-bold block">Institutes &amp; Schools</span>
+              </div>
+              <div className="p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-xl text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform">
+                <Award className="w-5 h-5" />
+              </div>
+            </motion.div>
+
+            {/* Card 4: Renewal Rate */}
+            <motion.div
+              whileHover={{ y: -4 }}
+              className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-amber-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+            >
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Avg Renewal Rate</span>
+                <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
+                  {totalTenants === 0 ? '—' : `${renewalRate}%`}
+                </span>
+                <span className="text-[9px] text-amber-500 font-bold block">Platform Renewal</span>
+              </div>
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform">
+                <Percent className="w-5 h-5" />
+              </div>
+            </motion.div>
           </div>
         );
       })()}

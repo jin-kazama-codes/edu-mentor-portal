@@ -24,14 +24,14 @@ async function test() {
 
   console.log('Login successful! ID:', authData.user?.id);
 
-  // Attempt to select from evaluations table
-  console.log('Attempting to select evaluations...');
-  const { data, error } = await supabase.from('evaluations').select('*');
+  // Attempt to select from mentors table
+  console.log('Attempting to select mentors...');
+  const { data, error } = await supabase.from('mentors').select('*');
   
   if (error) {
     console.error('Select failed:', error);
   } else {
-    console.log('Select successful! Found records:', data);
+    console.log('Select successful! Found mentors:', data);
   }
 }
 

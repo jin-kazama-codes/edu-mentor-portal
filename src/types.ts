@@ -20,6 +20,7 @@ export interface User {
   number?: string;
   gender?: 'Male' | 'Female' | 'Others';
   password?: string;
+  prefix?: 'Mr' | 'Miss' | 'Mrs' | 'Dr';
 }
 
 export interface Organization {
@@ -48,6 +49,7 @@ export interface Mentor {
   organization: string;
   phone?: string;
   gender?: 'Male' | 'Female' | 'Others';
+  prefix?: 'Mr' | 'Miss' | 'Mrs' | 'Dr';
 }
 
 export interface Student {
@@ -154,3 +156,15 @@ export interface PermissionMatrix {
     };
   };
 }
+
+export type AttendanceStatus = 'Present' | 'Absent' | 'On Leave' | 'On Field' | 'Wfh' | 'Half' | 'Weekend';
+
+export interface StudentAttendance {
+  id: string;
+  student_id: string;
+  date: string; // YYYY-MM-DD
+  status: AttendanceStatus;
+  organization: string;
+  created_at?: string;
+}
+

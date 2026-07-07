@@ -22,7 +22,11 @@ import {
   Building,
   Mail,
   Receipt,
-  X
+  X,
+  IndianRupee,
+  CreditCard,
+  FileText,
+  Clock
 } from 'lucide-react';
 import { payments as initialPayments } from '../../data/mockData';
 import { Payment } from '../../types';
@@ -455,31 +459,74 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
       </div>
 
       {/* Financial Aggregates Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Gross Billings</span>
-          <span className="text-lg font-black text-slate-800 dark:text-white mt-1.5 block">
-            ₹{data.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
-          </span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Paid / Received</span>
-          <span className="text-lg font-black text-green-600 mt-1.5 block">
-            ₹{data.filter(p => p.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
-          </span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Outstanding Overdue</span>
-          <span className="text-lg font-black text-red-500 mt-1.5 block">
-            ₹{data.filter(p => p.status === 'Failed' || (p.status as any) === 'Overdue').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
-          </span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Awaiting Pending</span>
-          <span className="text-lg font-black text-amber-500 mt-1.5 block">
-            ₹{data.filter(p => p.status === 'Pending').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
-          </span>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* Card 1: Gross Billings */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-blue-600 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Gross Billings</span>
+            <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
+              ₹{data.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+            </span>
+            <span className="text-[9px] text-blue-500 font-bold block">All Invoice Amount</span>
+          </div>
+          <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+            <IndianRupee className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 2: Paid / Received */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-emerald-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Paid / Received</span>
+            <span className="text-2xl font-black text-slate-850 dark:text-white leading-none block">
+              ₹{data.filter(p => p.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+            </span>
+            <span className="text-[9px] text-emerald-500 font-bold block">Cleared Transactions</span>
+          </div>
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform">
+            <CreditCard className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 3: Outstanding Overdue */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-rose-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Outstanding Overdue</span>
+            <span className="text-2xl font-black text-slate-805 dark:text-white leading-none block">
+              ₹{data.filter(p => p.status === 'Failed' || (p.status as any) === 'Overdue').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+            </span>
+            <span className="text-[9px] text-rose-500 font-bold block">Failed &amp; Unpaid</span>
+          </div>
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/30 rounded-xl text-rose-600 dark:text-rose-400 group-hover:scale-110 transition-transform">
+            <FileText className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 4: Awaiting Pending */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-amber-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Awaiting Pending</span>
+            <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
+              ₹{data.filter(p => p.status === 'Pending').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+            </span>
+            <span className="text-[9px] text-amber-500 font-bold block">Pending Settlement</span>
+          </div>
+          <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform animate-none">
+            <Clock className="w-5 h-5" />
+          </div>
+        </motion.div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

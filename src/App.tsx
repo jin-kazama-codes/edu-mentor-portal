@@ -18,6 +18,7 @@ import UsersView from './components/views/UsersView';
 import MentorsView from './components/views/MentorsView';
 import AssistantsView from './components/views/AssistantsView';
 import StudentsView from './components/views/StudentsView';
+import AttendanceView from './components/views/AttendanceView';
 import AssignmentView from './components/views/AssignmentView';
 import CalendarView from './components/views/CalendarView';
 import SessionsView from './components/views/SessionsView';
@@ -96,6 +97,8 @@ function MainApp() {
             }}
           />
         );
+      case 'attendance':
+        return <AttendanceView selectedOrg={selectedOrg} />;
       case 'assignment':
       case 'assignments':
         return <AssignmentView selectedOrg={selectedOrg} />;

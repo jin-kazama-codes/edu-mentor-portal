@@ -50,6 +50,7 @@ CREATE TABLE mentors (
   organization TEXT NOT NULL,
   phone TEXT,
   gender TEXT CHECK (gender IN ('Male', 'Female', 'Others')),
+  prefix TEXT CHECK (prefix IN ('Mr', 'Miss', 'Mrs', 'Dr')),
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -88,6 +89,7 @@ CREATE TABLE users (
   number TEXT,
   gender TEXT CHECK (gender IN ('Male', 'Female', 'Others')),
   password TEXT,
+  prefix TEXT CHECK (prefix IN ('Mr', 'Miss', 'Mrs', 'Dr')),
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -405,6 +407,7 @@ CREATE POLICY mentors_select ON mentors FOR SELECT USING (
   get_current_user_role() = 'Super Admin'
   OR (organization = get_current_user_org() AND check_permission('User and Role Management', 'read'))
   OR LOWER(email) = LOWER(auth.jwt() ->> 'email')
+  OR (get_current_user_role() = 'Student' AND organization = get_current_user_org())
 );
 CREATE POLICY mentors_insert ON mentors FOR INSERT WITH CHECK (
   get_current_user_role() = 'Super Admin'

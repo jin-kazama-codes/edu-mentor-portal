@@ -24,6 +24,8 @@ import {
   CheckCircle,
   Clock,
   User,
+  Users,
+  UserMinus,
   Mail,
   Phone,
   Upload,
@@ -57,6 +59,7 @@ export default function StudentsView({
   const itemsPerPage = 9;
 
   const canRead = hasPermission('User and Role Management', 'read') || currentUser?.role === 'Mentor' || currentUser?.role === 'Assistant';
+  const canEditProgress = currentUser?.role === 'Mentor' || currentUser?.role === 'Assistant' || currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin';
   const canCreate = hasPermission('User and Role Management', 'create');
   const canUpdate = hasPermission('User and Role Management', 'update');
   const canDelete = hasPermission('User and Role Management', 'delete');
@@ -120,7 +123,43 @@ export default function StudentsView({
         console.error('StudentsView: Error loading students:', error.message);
       }
       if (!error && stds) {
-        setData(stds);
+        // Dynamic status check based on student attendance sheets
+        const studentIds = stds.map((s) => s.id);
+        let updatedStudents = [...stds];
+
+        if (studentIds.length > 0) {
+          const { data: attLogs, error: attErr } = await supabase
+            .from('student_attendance')
+            .select('student_id, status, date')
+            .in('student_id', studentIds)
+            .order('date', { ascending: false });
+
+          if (!attErr && attLogs) {
+            updatedStudents = stds.map((student) => {
+              // Find latest non-Weekend attendance log for this student
+              const latestLog = attLogs.find(
+                (log) => log.student_id === student.id && log.status !== 'Weekend'
+              );
+              let dynamicStatus = student.status;
+
+              if (latestLog) {
+                if (latestLog.status === 'On Leave') {
+                  dynamicStatus = 'On Leave';
+                } else if (student.status === 'On Leave') {
+                  dynamicStatus = 'Active';
+                }
+              } else if (student.status === 'On Leave') {
+                dynamicStatus = 'Active';
+              }
+
+              return {
+                ...student,
+                status: dynamicStatus
+              };
+            });
+          }
+        }
+        setData(updatedStudents);
       }
     }
     loadData();
@@ -133,6 +172,92 @@ export default function StudentsView({
   const [showAddStudentModal, setShowAddStudentModal] = useState<boolean>(false);
   const [showToast, setShowToast] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
+
+  // Syllabus Progress editing state variables
+  const [isEditingProgress, setIsEditingProgress] = useState<boolean>(false);
+  const [editingProgressValue, setEditingProgressValue] = useState<number>(0);
+  const [isSavingProgress, setIsSavingProgress] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selectedStudent) {
+      setEditingProgressValue(selectedStudent.progress);
+      setIsEditingProgress(false);
+    }
+  }, [selectedStudent]);
+
+  const handleUpdateProgress = async () => {
+    if (!selectedStudent || !currentUser) return;
+    
+    // Check permission to edit progress
+    const canEditProgress = 
+      currentUser.role === 'Mentor' || 
+      currentUser.role === 'Assistant' || 
+      currentUser.role === 'Super Admin' || 
+      currentUser.role === 'Organization Admin';
+      
+    if (!canEditProgress) {
+      alert('Action Denied: You do not have permissions to edit student progress.');
+      return;
+    }
+
+    setIsSavingProgress(true);
+    try {
+      const { data: updatedData, error } = await supabase
+        .from('students')
+        .update({ progress: editingProgressValue })
+        .eq('id', selectedStudent.id)
+        .select();
+
+      if (error) {
+        throw error;
+      }
+
+      // Check if the update actually affected any rows (RLS policy check)
+      if (!updatedData || updatedData.length === 0) {
+        const sessionRes = await supabase.auth.getSession();
+        const hasSession = !!sessionRes.data.session;
+        
+        alert(
+          `RLS Write Restriction: The database rejected this update.\n\n` +
+          `• Did you copy and run the SQL migration in your Supabase SQL Editor?\n` +
+          `• Session status: ${hasSession ? 'Authenticated (' + sessionRes.data.session?.user?.email + ')' : 'Anonymous (Local Mock Auth)'}`
+        );
+        setIsEditingProgress(false);
+        return;
+      }
+
+      await logSecurityAudit(
+        'Update Student Syllabus Progress Successful',
+        'Info',
+        `Updated student "${selectedStudent.name}" [ID: ${selectedStudent.id}] syllabus progress to ${editingProgressValue}%.`
+      );
+
+      // Update data state for list and dashboard sync
+      setData(prev => 
+        prev.map(s => 
+          s.id === selectedStudent.id 
+            ? { ...s, progress: editingProgressValue } 
+            : s
+        )
+      );
+
+      // Update modal display state
+      setSelectedStudent(prev => prev ? { ...prev, progress: editingProgressValue } : null);
+
+      setToastMessage(`Syllabus progress updated to ${editingProgressValue}% for ${selectedStudent.name}`);
+      setShowToast(true);
+      setIsEditingProgress(false);
+
+      setTimeout(() => {
+        setShowToast(false);
+      }, 3000);
+    } catch (err: any) {
+      console.error('Error updating student progress:', err);
+      alert('Error updating progress: ' + (err.message || err));
+    } finally {
+      setIsSavingProgress(false);
+    }
+  };
 
   useEffect(() => {
     if (defaultAddOpen) {
@@ -416,23 +541,66 @@ export default function StudentsView({
       </div>
 
       {/* Cohort Aggregates */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Cohort Size</span>
-          <span className="text-lg font-black text-slate-700 dark:text-white mt-1.5 block">{totalCohortSize} Registered</span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Average Attendance</span>
-          <span className="text-lg font-black text-teal-600 mt-1.5 block">{avgAttendance}% Avg</span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Academic Progress</span>
-          <span className="text-lg font-black text-blue-500 mt-1.5 block">{avgProgress}% Index</span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">On Leave Tutees</span>
-          <span className="text-lg font-black text-amber-500 mt-1.5 block">{onLeaveCount} Student{onLeaveCount !== 1 ? 's' : ''}</span>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* Card 1: Cohort Size */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-blue-600 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Total Cohort Size</span>
+            <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">{totalCohortSize}</span>
+            <span className="text-[9px] text-blue-500 font-bold block">Enrolled Students</span>
+          </div>
+          <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+            <Users className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 2: Avg Attendance */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-teal-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Average Attendance</span>
+            <span className="text-2xl font-black text-teal-600 dark:text-teal-400 leading-none block">{avgAttendance}%</span>
+            <span className="text-[9px] text-teal-500 font-bold block">Monthly Attendance Avg</span>
+          </div>
+          <div className="p-3 bg-teal-50 dark:bg-teal-950/30 rounded-xl text-teal-600 dark:text-teal-400 group-hover:scale-110 transition-transform">
+            <Percent className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 3: Academic Progress */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-indigo-600 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Academic Progress</span>
+            <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 leading-none block">{avgProgress}%</span>
+            <span className="text-[9px] text-indigo-500 font-bold block">Average Syllabus Index</span>
+          </div>
+          <div className="p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-xl text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform">
+            <TrendingUp className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 4: On Leave */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-amber-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">On Leave Tutees</span>
+            <span className="text-2xl font-black text-amber-550 dark:text-amber-405 leading-none block">{onLeaveCount}</span>
+            <span className="text-[9px] text-amber-500 font-bold block">Currently On Leave</span>
+          </div>
+          <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform">
+            <UserMinus className="w-5 h-5" />
+          </div>
+        </motion.div>
       </div>
 
       {/* Filters Bar */}
@@ -473,96 +641,134 @@ export default function StudentsView({
             <option value="Suspended">Suspended</option>
           </select>
         </div>
-      </div>
-
-      {/* Grid of Student Cards */}
+      </div>      {/* Grid of Student Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {currentStudents.map((stud, idx) => (
-          <motion.div
-            key={stud.id}
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.4, delay: idx * 0.02 }}
-            className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col justify-between hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700 transition-all group"
-          >
-            {/* Header profile info */}
-            <div className="p-4 border-b border-slate-50 dark:border-slate-700/60 flex items-center justify-between">
-              <div className="flex gap-3 min-w-0">
-                <img
-                  src={stud.avatar}
-                  alt={stud.name}
-                  referrerPolicy="no-referrer"
-                  className="w-11 h-11 rounded-lg object-cover ring-2 ring-slate-50 shrink-0"
-                />
-                <div className="min-w-0">
-                  <h3 className="font-extrabold text-slate-800 dark:text-white text-xs truncate">{stud.name}</h3>
-                  <p className="text-[10px] text-slate-400">{stud.grade} • Age {stud.age}</p>
-                </div>
-              </div>
-              <span className={`px-2 py-0.5 rounded-full text-[8px] font-extrabold ${
-                stud.status === 'Active'
-                  ? 'bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400'
-                  : stud.status === 'On Leave'
-                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
-                  : stud.status === 'Graduated'
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400'
-                  : 'bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400'
-              }`}>
-                {stud.status}
-              </span>
-            </div>
+        {currentStudents.map((stud, idx) => {
+          // Dynamic status ring colors
+          const statusRingColor = 
+            stud.status === 'Active'
+              ? 'ring-2 ring-emerald-500/50 dark:ring-emerald-400/50'
+              : stud.status === 'On Leave'
+              ? 'ring-2 ring-amber-500/50 dark:ring-amber-400/50'
+              : stud.status === 'Graduated'
+              ? 'ring-2 ring-blue-500/50 dark:ring-blue-400/50'
+              : 'ring-2 ring-rose-500/50 dark:ring-rose-400/50';
 
-            {/* Metrics Info */}
-            <div className="p-4 space-y-3.5 flex-1">
-              {/* Progress Bar & Attendance Bar */}
-              <div className="space-y-2">
-                <div>
-                  <div className="flex justify-between text-[10px] text-slate-400 font-bold mb-1">
-                    <span className="flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5 text-blue-500" /> Syllabus Progress</span>
-                    <span className="font-mono text-slate-700 dark:text-slate-300">{stud.progress}%</span>
-                  </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                    <div className="h-full bg-blue-600 rounded-full" style={{ width: `${stud.progress}%` }} />
+          // Dynamic performance label
+          const attendancePerformance = 
+            stud.attendance >= 90 ? { label: 'Excellent', color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' } :
+            stud.attendance >= 75 ? { label: 'Satisfactory', color: 'text-teal-500 bg-teal-50 dark:bg-teal-950/20' } :
+            { label: 'Warning', color: 'text-rose-500 bg-rose-50 dark:bg-rose-950/20' };
+
+          const progressPerformance = 
+            stud.progress >= 80 ? { label: 'Advanced', color: 'text-blue-500 bg-blue-50 dark:bg-blue-950/20' } :
+            stud.progress >= 50 ? { label: 'On Track', color: 'text-indigo-500 bg-indigo-50 dark:bg-indigo-950/20' } :
+            { label: 'Beginning', color: 'text-slate-500 bg-slate-50 dark:bg-slate-900/50' };
+
+          return (
+            <motion.div
+              key={stud.id}
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ y: -6, scale: 1.01 }}
+              transition={{ duration: 0.3, delay: idx * 0.02 }}
+              className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col justify-between hover:shadow-xl hover:shadow-blue-500/5 hover:border-slate-200 dark:hover:border-slate-700 transition-all duration-200 group"
+            >
+              {/* Header profile info */}
+              <div className="p-4.5 border-b border-slate-100/60 dark:border-slate-700/60 flex items-center justify-between">
+                <div className="flex gap-3 min-w-0">
+                  <img
+                    src={stud.avatar}
+                    alt={stud.name}
+                    referrerPolicy="no-referrer"
+                    className={`w-11 h-11 rounded-xl object-cover shrink-0 ${statusRingColor}`}
+                  />
+                  <div className="min-w-0 flex flex-col justify-center">
+                    <h3 className="font-extrabold text-slate-800 dark:text-white text-xs truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{stud.name}</h3>
+                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">{stud.grade} • Age {stud.age}</p>
                   </div>
                 </div>
+                
+                {/* Status pill with pulsing dot */}
+                <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-extrabold leading-none ${
+                  stud.status === 'Active'
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/25 dark:text-emerald-400'
+                    : stud.status === 'On Leave'
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/25 dark:text-amber-400'
+                    : stud.status === 'Graduated'
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/25 dark:text-blue-400'
+                    : 'bg-rose-50 text-rose-700 dark:bg-rose-950/25 dark:text-rose-450'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    stud.status === 'Active' ? 'bg-emerald-500 animate-pulse' :
+                    stud.status === 'On Leave' ? 'bg-amber-500 animate-pulse' :
+                    stud.status === 'Graduated' ? 'bg-blue-500' : 'bg-rose-500'
+                  }`} />
+                  {stud.status}
+                </span>
+              </div>
 
-                <div>
-                  <div className="flex justify-between text-[10px] text-slate-400 font-bold mb-1">
-                    <span className="flex items-center gap-1"><Smile className="w-3.5 h-3.5 text-teal-500" /> Attendance Rate</span>
-                    <span className="font-mono text-slate-700 dark:text-slate-300">{stud.attendance}%</span>
+              {/* Metrics Info */}
+              <div className="p-4.5 space-y-4 flex-1">
+                {/* Progress Bar & Attendance Bar */}
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between items-center text-[10px] font-bold mb-1.5">
+                      <span className="flex items-center gap-1.5 text-slate-450"><TrendingUp className="w-3.5 h-3.5 text-blue-500" /> Syllabus Progress</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold tracking-wide uppercase ${progressPerformance.color}`}>{progressPerformance.label}</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-350">{stud.progress}%</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full" style={{ width: `${stud.progress}%` }} />
+                    </div>
                   </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                    <div className="h-full bg-teal-500 rounded-full" style={{ width: `${stud.attendance}%` }} />
+
+                  <div>
+                    <div className="flex justify-between items-center text-[10px] font-bold mb-1.5">
+                      <span className="flex items-center gap-1.5 text-slate-450"><Smile className="w-3.5 h-3.5 text-teal-500" /> Attendance Rate</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold tracking-wide uppercase ${attendancePerformance.color}`}>{attendancePerformance.label}</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-350">{stud.attendance}%</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-teal-400 to-emerald-500 rounded-full" style={{ width: `${stud.attendance}%` }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assignments / Allocations */}
+                <div className="grid grid-cols-2 gap-3 bg-slate-50/65 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
+                  <div className="space-y-0.5">
+                    <span className="text-[8px] uppercase font-extrabold text-slate-400 flex items-center gap-1">
+                      <UserCheck className="w-3 h-3 text-blue-500 shrink-0" /> Assigned Mentor
+                    </span>
+                    <span className="font-extrabold text-slate-700 dark:text-slate-200 truncate block mt-0.5" title={stud.mentor}>{stud.mentor}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[8px] uppercase font-extrabold text-slate-400 flex items-center gap-1">
+                      <HeartHandshake className="w-3 h-3 text-pink-500 shrink-0" /> Guardian / Contact
+                    </span>
+                    <span className="font-extrabold text-slate-700 dark:text-slate-200 truncate block mt-0.5" title={stud.guardian}>{stud.guardian}</span>
+                  </div>
+                </div>
+
+                {/* Upcoming Slot description */}
+                <div className="flex gap-2.5 items-center text-[10px] bg-blue-50/40 dark:bg-blue-950/10 p-2.5 rounded-xl border border-blue-100/30 dark:border-blue-900/20 text-slate-650 dark:text-slate-350">
+                  <Calendar className="w-4 h-4 text-blue-500 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[8px] block">Next Scheduled Class</span>
+                    <p className="truncate font-semibold text-slate-700 dark:text-slate-200 mt-0.5">{stud.upcomingSession}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Assignments / Allocations */}
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-900/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-750/30 text-xs">
-                <div>
-                  <span className="text-[8px] uppercase font-bold text-slate-400 block">Assigned Mentor</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300 truncate block mt-0.5" title={stud.mentor}>{stud.mentor}</span>
-                </div>
-                <div>
-                  <span className="text-[8px] uppercase font-bold text-slate-400 block">Guardian / Contact</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300 truncate block mt-0.5" title={stud.guardian}>{stud.guardian}</span>
-                </div>
-              </div>
-
-              {/* Upcoming Slot description */}
-              <div className="flex gap-1.5 items-start text-[10px] bg-slate-50/60 dark:bg-slate-750/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400">
-                <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.25" />
-                <div className="min-w-0">
-                  <span className="font-bold text-slate-600 dark:text-slate-300">Next Scheduled Class:</span>
-                  <p className="truncate mt-0.5 font-medium">{stud.upcomingSession}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer triggers */}
-            <div className="p-3 bg-slate-50/30 dark:bg-slate-900/10 border-t border-slate-50 dark:border-slate-750/30 flex items-center justify-between gap-2">
-              <span className="text-[10px] text-slate-400 font-mono">ID: {stud.id.toUpperCase()}</span>
-              <div className="flex gap-2">
+              {/* Footer triggers */}
+              <div className="p-3.5 bg-slate-50/40 dark:bg-slate-900/20 border-t border-slate-100/80 dark:border-slate-850/80 flex items-center justify-between gap-2">
+                <span className="text-[9px] text-slate-400 font-mono tracking-wider">ID: {stud.id.toUpperCase()}</span>
+                <div className="flex gap-2">
                 <button
                   onClick={() => {
                     if (onEvaluate) {
@@ -587,7 +793,8 @@ export default function StudentsView({
               </div>
             </div>
           </motion.div>
-        ))}
+        );
+      })}
         {filteredStudents.length === 0 && (
           <div className="col-span-full py-12 text-center text-slate-400 font-semibold">
             No students matching current filters found.
@@ -702,14 +909,69 @@ export default function StudentsView({
                 <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
                   {/* Performance Indicators */}
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100/40 dark:border-blue-900/20 rounded-xl">
-                      <span className="text-[9px] uppercase font-bold text-slate-400 block">Academic Progress</span>
-                      <div className="flex items-baseline gap-2 mt-1">
-                        <span className="text-xl font-black text-blue-600 dark:text-blue-400">{selectedStudent.progress}%</span>
-                        <span className="text-[10px] text-slate-400">of Syllabus completed</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full mt-2 overflow-hidden">
-                        <div className="h-full bg-blue-600 rounded-full" style={{ width: `${selectedStudent.progress}%` }} />
+                    <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100/40 dark:border-blue-900/20 rounded-xl flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Academic Progress</span>
+                          {canEditProgress && !isEditingProgress && (
+                            <button
+                              onClick={() => {
+                                setEditingProgressValue(selectedStudent.progress);
+                                setIsEditingProgress(true);
+                              }}
+                              className="px-2 py-0.5 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-md transition-all cursor-pointer flex items-center gap-1 text-[9px] font-bold border border-blue-200/50 dark:border-blue-800/50"
+                              title="Edit progress"
+                            >
+                              Edit Progress
+                            </button>
+                          )}
+                        </div>
+                        
+                        {isEditingProgress ? (
+                          <div className="mt-2 space-y-2">
+                            <div className="flex items-center justify-between text-[10px] font-bold text-blue-600 dark:text-blue-400">
+                              <span>New Progress:</span>
+                              <span className="font-mono text-[11px] bg-blue-100 dark:bg-blue-950 px-1.5 py-0.5 rounded">{editingProgressValue}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={editingProgressValue}
+                              onChange={(e) => setEditingProgressValue(Number(e.target.value))}
+                              disabled={isSavingProgress}
+                              className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <div className="flex justify-end gap-1.5 mt-2">
+                              <button
+                                type="button"
+                                disabled={isSavingProgress}
+                                onClick={() => setIsEditingProgress(false)}
+                                className="px-2 py-1 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-350 rounded-lg text-[9px] font-bold transition-all cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSavingProgress}
+                                onClick={handleUpdateProgress}
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
+                              >
+                                {isSavingProgress ? 'Saving...' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-baseline gap-2 mt-1">
+                              <span className="text-xl font-black text-blue-600 dark:text-blue-400">{selectedStudent.progress}%</span>
+                              <span className="text-[10px] text-slate-400">of Syllabus completed</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full mt-2 overflow-hidden">
+                              <div className="h-full bg-blue-600 rounded-full transition-all duration-300" style={{ width: `${selectedStudent.progress}%` }} />
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 

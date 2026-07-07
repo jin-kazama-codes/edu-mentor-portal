@@ -348,14 +348,14 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
 
   // Executive Statistics Cards Data
   const stats = [
-    { id: 1, label: 'Total Organizations', value: String(counts.orgs), change: `${counts.orgs} active`, icon: Building2, color: 'text-blue-500 bg-blue-50 dark:bg-blue-950/30', route: 'organizations', permission: () => currentUser?.role === 'Super Admin' },
-    { id: 2, label: currentUser?.role === 'Mentor' || currentUser?.role === 'Assistant' ? 'My Students' : 'Active Students', value: counts.students.toLocaleString(), change: counts.studentsGrowthText, icon: Users, color: 'text-teal-500 bg-teal-50 dark:bg-teal-950/30', route: 'students', permission: () => currentUser?.role !== 'Student' },
-    { id: 3, label: 'Active Mentors', value: String(counts.mentors), change: counts.mentorsGrowthText, icon: GraduationCap, color: 'text-indigo-500 bg-indigo-50 dark:bg-indigo-950/30', route: 'mentors', permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
-    { id: 4, label: 'Sessions Today', value: String(counts.sessionsToday), change: 'Syncing live', icon: CalendarDays, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30', route: 'calendar' },
-    { id: 5, label: 'Upcoming Sessions', value: String(counts.upcomingSessions), change: 'Across all batches', icon: Clock, color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/30', route: 'calendar' },
-    { id: 6, label: 'Revenue This Month', value: `₹${counts.revenue.toLocaleString()}`, change: counts.revenueGrowthText, icon: IndianRupee, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30', route: 'payments', permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
-    { id: 7, label: 'Pending Evaluations', value: String(counts.pendingEvals), change: counts.evalsGrowthText, icon: ClipboardList, color: 'text-rose-500 bg-rose-50 dark:bg-rose-950/30', route: 'evaluations', permission: () => currentUser?.role !== 'Student' },
-    { id: 8, label: 'Unread Messages', value: String(counts.unreadMsgs), change: 'From channels', icon: MessageSquare, color: 'text-sky-500 bg-sky-50 dark:bg-sky-950/30', route: 'messaging' }
+    { id: 1, label: 'Total Organizations', value: String(counts.orgs), change: `${counts.orgs} Active Tenants`, icon: Building2, color: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30', borderClass: 'border-l-blue-600', subColor: 'text-blue-500', route: 'organizations', permission: () => currentUser?.role === 'Super Admin' },
+    { id: 2, label: currentUser?.role === 'Mentor' || currentUser?.role === 'Assistant' ? 'My Students' : 'Active Students', value: counts.students.toLocaleString(), change: counts.studentsGrowthText, icon: Users, color: 'text-teal-650 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/30', borderClass: 'border-l-teal-500', subColor: 'text-teal-500', route: 'students', permission: () => currentUser?.role !== 'Student' },
+    { id: 3, label: 'Active Mentors', value: String(counts.mentors), change: counts.mentorsGrowthText, icon: GraduationCap, color: 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30', borderClass: 'border-l-indigo-600', subColor: 'text-indigo-500', route: 'mentors', permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
+    { id: 4, label: 'Sessions Today', value: String(counts.sessionsToday), change: 'Scheduled classes today', icon: CalendarDays, color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30', borderClass: 'border-l-emerald-500', subColor: 'text-emerald-500', route: 'calendar' },
+    { id: 5, label: 'Upcoming Sessions', value: String(counts.upcomingSessions), change: 'Across all batches', icon: Clock, color: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30', borderClass: 'border-l-amber-500', subColor: 'text-amber-500', route: 'calendar' },
+    { id: 6, label: 'Revenue This Month', value: `₹${counts.revenue.toLocaleString()}`, change: counts.revenueGrowthText, icon: IndianRupee, color: 'text-emerald-650 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30', borderClass: 'border-l-teal-600', subColor: 'text-teal-500', route: 'payments', permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
+    { id: 7, label: 'Pending Evaluations', value: String(counts.pendingEvals), change: counts.evalsGrowthText, icon: ClipboardList, color: 'text-rose-600 dark:text-rose-450 bg-rose-50 dark:bg-rose-950/30', borderClass: 'border-l-rose-500', subColor: 'text-rose-500', route: 'evaluations', permission: () => currentUser?.role !== 'Student' },
+    { id: 8, label: 'Unread Messages', value: String(counts.unreadMsgs), change: 'In active channels', icon: MessageSquare, color: 'text-sky-650 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/30', borderClass: 'border-l-sky-500', subColor: 'text-sky-500', route: 'messaging' }
   ].filter(stat => !stat.permission || stat.permission());
 
   // Render unique layout if current user is Student
@@ -374,7 +374,9 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
               Welcome back, {currentUser.name}
             </h1>
             <p className="text-xs text-slate-350 mt-1">
-              Your assigned mentor is <strong className="text-teal-400">{studentMentor?.name || 'Awaiting Allocation'}</strong>. Check your calendar for upcoming tutoring sessions.
+              Your assigned mentor is <strong className="text-teal-400">
+                {studentMentor ? (studentMentor.prefix ? `${studentMentor.prefix} ${studentMentor.name}` : studentMentor.name) : 'Awaiting Allocation'}
+              </strong>. Check your calendar for upcoming tutoring sessions.
             </p>
           </div>
           <div className="flex items-center gap-2.5 shrink-0 relative z-10">
@@ -396,102 +398,104 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {/* Stat 1: Assigned Mentor */}
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-400 tracking-wide uppercase">Assigned Mentor</span>
-              <div className="p-2 rounded-xl text-indigo-500 bg-indigo-50 dark:bg-indigo-950/30">
-                <GraduationCap className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="mt-3">
-              <h3 className="text-base font-bold text-slate-800 dark:text-white truncate leading-tight">
-                {studentMentor?.name || 'Awaiting Allocation'}
-              </h3>
-              <p className="text-[10px] text-slate-400 font-medium mt-1 truncate">
+          <motion.div
+            whileHover={{ y: -4 }}
+            className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-indigo-650 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+          >
+            <div className="space-y-1 min-w-0 flex-1 pr-3">
+              <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Assigned Mentor</span>
+              <span className="text-lg font-black text-slate-800 dark:text-white leading-none block truncate">
+                {studentMentor ? (studentMentor.prefix ? `${studentMentor.prefix} ${studentMentor.name}` : studentMentor.name) : 'Awaiting Allocation'}
+              </span>
+              <span className="text-[9px] text-indigo-500 font-bold block truncate">
                 {studentMentor?.subjects?.slice(0, 2).join(', ') || 'General Studies'}
-              </p>
+              </span>
             </div>
-          </div>
+            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-xl text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform shrink-0">
+              <GraduationCap className="w-5 h-5" />
+            </div>
+          </motion.div>
 
           {/* Stat 2: Upcoming Sessions */}
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-400 tracking-wide uppercase">Upcoming Sessions</span>
-              <div className="p-2 rounded-xl text-amber-500 bg-amber-50 dark:bg-amber-950/30">
-                <Clock className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="mt-3">
-              <h3 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-tight">
+          <motion.div
+            whileHover={{ y: -4 }}
+            className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-amber-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+          >
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Upcoming Sessions</span>
+              <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
                 {counts.upcomingSessions}
-              </h3>
-              <p className="text-[10px] text-slate-400 font-medium mt-1">
-                Synced with Google Calendar
-              </p>
+              </span>
+              <span className="text-[9px] text-amber-500 font-bold block">
+                Scheduled Batches
+              </span>
             </div>
-          </div>
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+          </motion.div>
 
           {/* Stat 3: Sessions Today */}
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-400 tracking-wide uppercase">Classes Today</span>
-              <div className="p-2 rounded-xl text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30">
-                <CalendarDays className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="mt-3">
-              <h3 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-tight">
+          <motion.div
+            whileHover={{ y: -4 }}
+            className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-emerald-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+          >
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Classes Today</span>
+              <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
                 {counts.sessionsToday}
-              </h3>
-              <p className="text-[10px] text-slate-400 font-medium mt-1">
-                Scheduled slots for today
-              </p>
+              </span>
+              <span className="text-[9px] text-emerald-500 font-bold block">
+                Active Slots For Today
+              </span>
             </div>
-          </div>
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform shrink-0">
+              <CalendarDays className="w-5 h-5" />
+            </div>
+          </motion.div>
 
-          {/* Stat 4: Invoice Transactions */}
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between cursor-pointer hover:shadow-md transition-shadow" onClick={() => onNavigate('payments')}>
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-400 tracking-wide uppercase">Payment History</span>
-              <div className="p-2 rounded-xl text-teal-600 bg-teal-50 dark:bg-teal-950/30">
-                <IndianRupee className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="mt-3">
-              <h3 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-tight">
+          {/* Stat 4: Invoice Transactions / Payment */}
+          <motion.div
+            whileHover={{ y: -4 }}
+            onClick={() => onNavigate('payments')}
+            className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-teal-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all cursor-pointer"
+          >
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Payment History</span>
+              <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
                 ₹{counts.revenue.toLocaleString()}
-              </h3>
-              <p className="text-[10px] text-slate-400 font-medium mt-1 flex items-center gap-0.5">
-                <span>View bills & history</span>
-                <ArrowRight className="w-3 h-3 text-slate-400" />
-              </p>
+              </span>
+              <span className="text-[9px] text-teal-500 font-bold block">
+                Bills &amp; Receipts
+              </span>
             </div>
-          </div>
+            <div className="p-3 bg-teal-50 dark:bg-teal-950/30 rounded-xl text-teal-600 dark:text-teal-400 group-hover:scale-110 transition-transform shrink-0">
+              <IndianRupee className="w-5 h-5" />
+            </div>
+          </motion.div>
 
           {/* Stat 5: Academic Evaluation */}
           {studentEvaluation && (
-            <div 
-              className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-slate-900/60 dark:to-slate-850/40 p-4 rounded-2xl border border-blue-100/40 dark:border-slate-750 shadow-sm flex flex-col justify-between cursor-pointer hover:shadow-md transition-shadow relative overflow-hidden group" 
+            <motion.div
+              whileHover={{ y: -4 }}
               onClick={() => onNavigate('evaluations')}
+              className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-blue-600 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all cursor-pointer lg:col-span-4"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 tracking-wide uppercase">Academic Rating</span>
-                <div className="p-2 rounded-xl text-blue-600 bg-blue-100/60 dark:bg-blue-950/40">
-                  <Award className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="mt-3 relative z-10">
-                <h3 className="text-xl md:text-2xl font-black text-blue-600 dark:text-white leading-tight">
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Academic Rating</span>
+                <span className="text-2xl font-black text-blue-600 dark:text-blue-400 leading-none block">
                   {Math.round((studentEvaluation.academic + studentEvaluation.behaviour + studentEvaluation.attendance + studentEvaluation.communication) / 4)}%
-                </h3>
-                <p className="text-[10px] text-blue-600 dark:text-teal-400 font-bold mt-1 flex items-center gap-0.5">
-                  <span>View full report card</span>
-                  <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-                </p>
+                </span>
+                <span className="text-[9px] text-blue-500 font-bold block">
+                  Report Card Score
+                </span>
               </div>
-            </div>
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform shrink-0">
+                <Award className="w-5 h-5" />
+              </div>
+            </motion.div>
           )}
         </div>
 
@@ -616,7 +620,9 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
                               {sess.duration}
                             </span>
                           </h5>
-                          <p className="text-[10px] text-slate-400 mt-0.5">Mentor: {sess.mentor} • {sess.time}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Mentor: {studentMentor && sess.mentor.toLowerCase() === studentMentor.name.toLowerCase() && studentMentor.prefix ? `${studentMentor.prefix} ` : ''}{sess.mentor} • {sess.time}
+                          </p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -754,8 +760,8 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
       </div>
 
       {/* Grid of statistics cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, idx) => {
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {stats.map((stat: any, idx) => {
           const Icon = stat.icon;
           return (
             <motion.div
@@ -763,25 +769,23 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
               onClick={() => onNavigate(stat.route)}
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
+              whileHover={{ y: -4 }}
               transition={{ duration: 0.4, delay: idx * 0.04 }}
-              className="group bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700 transition-all cursor-pointer flex flex-col justify-between"
+              className={`group bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center justify-between relative overflow-hidden border-l-4 ${stat.borderClass}`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-400 tracking-wide uppercase">
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">
                   {stat.label}
                 </span>
-                <div className={`p-2 rounded-xl shrink-0 ${stat.color} group-hover:scale-105 transition-transform`}>
-                  <Icon className="w-4 h-4" />
-                </div>
-              </div>
-              <div className="mt-3">
-                <h3 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-tight">
+                <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
                   {stat.value}
-                </h3>
-                <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1 mt-1">
-                  <TrendingUp className="w-3 h-3 text-emerald-500" />
-                  <span>{stat.change}</span>
-                </p>
+                </span>
+                <span className={`text-[9px] font-bold block ${stat.subColor}`}>
+                  {stat.change}
+                </span>
+              </div>
+              <div className={`p-3 rounded-xl shrink-0 ${stat.color} group-hover:scale-110 transition-transform`}>
+                <Icon className="w-5 h-5" />
               </div>
             </motion.div>
           );
