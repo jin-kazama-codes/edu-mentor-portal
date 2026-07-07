@@ -19,7 +19,7 @@ export const organizations: Organization[] = [
 // ==========================================
 // 2. MENTORS (15+ items)
 // ==========================================
-export const mentors: Mentor[] = [
+const rawMentors: Omit<Mentor, 'organization'>[] = [
   {
     id: 'm-1',
     name: 'Aadil Bhat',
@@ -217,10 +217,19 @@ export const mentors: Mentor[] = [
   }
 ];
 
+export const mentors: Mentor[] = rawMentors.map(m => {
+  let organization = 'Bright Future Academy';
+  if (m.email.includes('learnhub')) organization = 'LearnHub Institute';
+  else if (m.email.includes('smartminds')) organization = 'Smart Minds J&K';
+  else if (m.email.includes('aspire')) organization = 'Aspire Education';
+  else if (m.email.includes('valleycrest')) organization = 'Valley Crest Academics';
+  return { ...m, organization };
+});
+
 // ==========================================
 // 3. STUDENTS (50+ items)
 // ==========================================
-const baseStudents: Omit<Student, 'id'>[] = [
+const baseStudents: Omit<Student, 'id' | 'email' | 'organization'>[] = [
   { name: 'Zoya Khan', age: 16, grade: '11th Grade', mentor: 'Aadil Bhat', guardian: 'Tariq Khan', progress: 94, attendance: 96, upcomingSession: 'July 3, 2026 - Math Refresher', status: 'Active', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80' },
   { name: 'Sameer Rather', age: 17, grade: '12th Grade', mentor: 'Aadil Bhat', guardian: 'Manzoor Rather', progress: 88, attendance: 92, upcomingSession: 'July 4, 2026 - Physics Lab Prep', status: 'Active', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' },
   { name: 'Iqra Jan', age: 15, grade: '10th Grade', mentor: 'Aadil Bhat', guardian: 'Abdul Rashid', progress: 91, attendance: 95, upcomingSession: 'July 3, 2026 - Calculus Basics', status: 'Active', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80' },
@@ -258,6 +267,8 @@ for (let i = 0; i < 52; i++) {
   students.push({
     id: `s-${i + 1}`,
     name: fullName,
+    email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}@gmail.com`,
+    organization: mentorObj.organization || 'Bright Future Academy',
     age: 12 + (i % 7),
     grade: `${8 + (i % 5)}th Grade`,
     mentor: mentorObj.name,
@@ -345,7 +356,8 @@ for (let i = 0; i < 305; i++) {
     voiceNotesUrl: i % 4 === 0 ? 'https://example.com/audio/session_v_note.mp3' : undefined,
     files: i % 3 === 0 ? ['homework_rubric.pdf', 'geometry_cheat_sheet.png'] : [],
     status,
-    category: categories[i % categories.length]
+    category: categories[i % categories.length],
+    organization: studentObj.organization || 'Bright Future Academy'
   });
 }
 
@@ -449,7 +461,7 @@ chatMessages['c-5'] = [
 // 7. PAYMENTS (100+ items)
 // ==========================================
 export const payments: Payment[] = [];
-const paymentPlans: Payment['plan'][] = ['Monthly Pro', 'Annual Elite', 'Quarterly Basic', 'One-Time Session'];
+const paymentPlans = ['Monthly Pro', 'Annual Elite', 'Quarterly Basic', 'One-Time Session'];
 const statuses: Payment['status'][] = ['Paid', 'Pending', 'Failed', 'Refunded'];
 
 // Generate 105 payments programmatically
@@ -476,6 +488,7 @@ for (let i = 0; i < 105; i++) {
     status,
     date: formattedDate,
     invoiceNumber: `INV-2026-${8400 + i}`,
+    description: plan,  // use the plan name as description for existing mock data
     plan,
     refundAmount: status === 'Refunded' ? amount : undefined
   });

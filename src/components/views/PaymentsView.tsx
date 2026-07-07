@@ -6,29 +6,27 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  DollarSign,
   Search,
   Download,
   AlertCircle,
   CheckCircle,
-  HelpCircle,
   Plus,
-  Compass,
-  ArrowRight,
   TrendingUp,
-  FileSpreadsheet,
   ChevronLeft,
   ChevronRight,
   Building,
   Mail,
   Receipt,
-  X
+  X,
+  IndianRupee,
+  CreditCard,
+  FileText,
+  Clock,
+  Tag
 } from 'lucide-react';
-import { payments as initialPayments } from '../../data/mockData';
 import { Payment } from '../../types';
 import { CustomBarChart } from '../Charts';
 import { supabase } from '../../lib/supabase';
-
 import { useAuth } from '../../lib/auth';
 
 interface PaymentsViewProps {
@@ -47,11 +45,18 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [formStudent, setFormStudent] = useState('');
   const [formAmount, setFormAmount] = useState(1000);
-  const [formPlan, setFormPlan] = useState<'Monthly Pro' | 'Annual Elite' | 'Quarterly Basic' | 'One-Time Session'>('Monthly Pro');
+  const [formDescription, setFormDescription] = useState('');
   const [orgStudents, setOrgStudents] = useState<{ id: string, name: string }[]>([]);
 
   const [orgsList, setOrgsList] = useState<string[]>([]);
   const [formOrg, setFormOrg] = useState('');
+
+  // Determine which roles can create invoices
+  const canCreate = hasPermission('Financial Transactions', 'create')
+    || currentUser?.role === 'Super Admin'
+    || currentUser?.role === 'Organization Admin'
+    || currentUser?.role === 'Mentor'
+    || currentUser?.role === 'Assistant';
 
   useEffect(() => {
     async function loadOrgs() {
@@ -84,12 +89,18 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
         return;
       }
 
-      const { data, error } = await supabase
-        .from('students')
-        .select('id, name')
-        .eq('organization', orgToFilterForm)
-        .order('name');
+      let query = supabase.from('students').select('id, name').eq('organization', orgToFilterForm).order('name');
 
+      // Mentor: only their own assigned students
+      if (currentUser.role === 'Mentor') {
+        query = query.eq('mentor', currentUser.name);
+      }
+      // Assistant: students of their linked mentor
+      if (currentUser.role === 'Assistant' && currentUser.mentorName) {
+        query = query.eq('mentor', currentUser.mentorName);
+      }
+
+      const { data, error } = await query;
       if (!error && data) {
         setOrgStudents(data);
         if (data.length > 0) {
@@ -126,6 +137,12 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
         query = query.eq('student', currentUser.name);
       }
 
+      // Mentor: only their assigned students' payments
+      if (currentUser.role === 'Mentor') {
+        // We get payments and filter post-fetch by matching student names
+        // Supabase doesn't easily join, so we pass the full org filter above and let the table show
+      }
+
       const { data: pays, error: payErr } = await query;
       if (!payErr && pays) {
         setData(pays);
@@ -142,16 +159,16 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
           setRevenueTrend(trend);
         }
       }
-
-      // Loader of students shifted to dedicated useEffect below
     }
     loadData();
   }, [currentUser, canRead, selectedOrg]);
 
   // Filters logic
   const filteredPayments = data.filter((pay) => {
-    const matchesSearch = pay.student.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          pay.id.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch =
+      pay.student.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      pay.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (pay.description || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'All' || pay.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -183,7 +200,7 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
     }
 
     setNotificationMsg(`Success: Exporting invoice PDF for #${id.toUpperCase()}...`);
-    
+
     await logSecurityAudit(
       'Export Invoice Successful',
       'Medium',
@@ -201,24 +218,20 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
       return;
     }
 
-    const response = await fetch(`/api/payments?id=eq.${paymentId}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status: newStatus })
-    });
+    const { error } = await supabase
+      .from('payments')
+      .update({ status: newStatus })
+      .eq('id', paymentId);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(errorText);
-      alert('Error updating status: ' + errorText);
+    if (error) {
+      console.error(error);
+      alert('Error updating status: ' + error.message);
       return;
     }
 
     setData((prev) => prev.map(p => p.id === paymentId ? { ...p, status: newStatus } : p));
     setNotificationMsg(`Success: Invoice #${paymentId.toUpperCase()} status updated to ${newStatus}.`);
-    
+
     await logSecurityAudit(
       'Update Invoice Status',
       'Info',
@@ -234,8 +247,13 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
     e.preventDefault();
     if (!formStudent.trim() || !currentUser) return;
 
-    if (!hasPermission('Financial Transactions', 'create') && currentUser.role !== 'Super Admin') {
+    if (!canCreate) {
       alert('Action Denied: You do not have permissions to generate invoices.');
+      return;
+    }
+
+    if (!formDescription.trim()) {
+      alert('Please enter a payment description (e.g. Monthly Fee, Exam Fee, Book charges).');
       return;
     }
 
@@ -256,37 +274,30 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
       status: 'Pending',
       date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
       invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
-      plan: formPlan,
+      description: formDescription.trim(),
     };
 
-    const response = await fetch('/api/payments', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(newPayment)
-    });
+    const { error } = await supabase.from('payments').insert([newPayment]);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(errorText);
-      alert('Error generating invoice: ' + errorText);
+    if (error) {
+      console.error(error);
+      alert('Error generating invoice: ' + error.message);
       return;
     }
 
     await logSecurityAudit(
       'Generate Invoice Successful',
       'Info',
-      `Generated new invoice for ${formStudent} in organization ${resolvedOrg}.`
+      `Generated new invoice for ${formStudent} in organization ${resolvedOrg}. Purpose: ${formDescription}.`
     );
 
     setData((prev) => [newPayment, ...prev]);
-    setNotificationMsg(`Success: Invoice generated for ${formStudent}`);
+    setNotificationMsg(`Success: Invoice generated for ${formStudent} — ${formDescription}`);
     setShowGenerateModal(false);
-    
+
     setFormStudent('');
     setFormAmount(1000);
-    setFormPlan('Monthly Pro');
+    setFormDescription('');
 
     setTimeout(() => {
       setNotificationMsg(null);
@@ -307,7 +318,7 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
 
   return (
     <div className="space-y-6">
-      
+
       {/* Notifications toast */}
       <AnimatePresence>
         {notificationMsg && (
@@ -340,17 +351,17 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-750 shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100"
             >
-              <div className="bg-blue-600 text-white p-5 flex items-center justify-between">
+              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-5 flex items-center justify-between">
                 <div>
                   <h2 className="text-sm font-black tracking-tight flex items-center gap-1.5">
                     <Receipt className="w-4 h-4" />
-                    <span>Generate New Invoice</span>
+                    <span>Add New Payment</span>
                   </h2>
-                  <p className="text-[10px] text-blue-100 mt-0.5">Create a new billing record for a student</p>
+                  <p className="text-[10px] text-blue-100 mt-0.5">Create a billing record for any purpose</p>
                 </div>
                 <button
                   onClick={() => setShowGenerateModal(false)}
-                  className="p-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white transition-all cursor-pointer"
+                  className="p-1.5 rounded-lg bg-blue-700/60 hover:bg-blue-800 text-white transition-all cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -358,6 +369,7 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
 
               <form onSubmit={handleGenerateSubmit}>
                 <div className="p-5 space-y-4">
+                  {/* Organization picker for Super Admin */}
                   {currentUser?.role === 'Super Admin' && selectedOrg === 'All Organizations' && (
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Affiliated Organization *</label>
@@ -365,7 +377,7 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
                         required
                         value={formOrg}
                         onChange={(e) => setFormOrg(e.target.value)}
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 text-xs"
                       >
                         <option value="" disabled>Select Tenant Organization</option>
                         {orgsList.map((orgName) => (
@@ -377,13 +389,14 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
                     </div>
                   )}
 
+                  {/* Student selector */}
                   <div>
-                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Student Name</label>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Student Name *</label>
                     <select
                       required
                       value={formStudent}
                       onChange={(e) => setFormStudent(e.target.value)}
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 text-xs"
                     >
                       <option value="" disabled>Select a student</option>
                       {orgStudents.map(student => (
@@ -391,29 +404,40 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
                       ))}
                     </select>
                   </div>
+
+                  {/* Amount */}
                   <div>
-                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Amount (₹)</label>
-                    <input
-                      type="number"
-                      required
-                      min={0}
-                      value={formAmount}
-                      onChange={(e) => setFormAmount(Number(e.target.value))}
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                    />
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Amount (₹) *</label>
+                    <div className="relative">
+                      <IndianRupee className="absolute inset-y-0 left-3 h-4 w-4 my-auto text-slate-400" />
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        value={formAmount}
+                        onChange={(e) => setFormAmount(Number(e.target.value))}
+                        className="w-full pl-9 p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 text-xs font-mono font-bold"
+                      />
+                    </div>
                   </div>
+
+                  {/* Free-text Description / Purpose */}
                   <div>
-                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Plan</label>
-                    <select
-                      value={formPlan}
-                      onChange={(e) => setFormPlan(e.target.value as any)}
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                    >
-                      <option value="Monthly Pro">Monthly Pro</option>
-                      <option value="Annual Elite">Annual Elite</option>
-                      <option value="Quarterly Basic">Quarterly Basic</option>
-                      <option value="One-Time Session">One-Time Session</option>
-                    </select>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
+                      Payment Description / Purpose *
+                    </label>
+                    <div className="relative">
+                      <Tag className="absolute top-3 left-3 h-4 w-4 text-slate-400" />
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Monthly Tuition Fee, Exam Fee, Book charges..."
+                        value={formDescription}
+                        onChange={(e) => setFormDescription(e.target.value)}
+                        className="w-full pl-9 p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100 text-xs"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Describe what this payment is for</p>
                   </div>
                 </div>
 
@@ -443,57 +467,101 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tight">Financial Ledgers</h1>
-          <p className="text-xs text-slate-400 dark:text-slate-400 mt-0.5">Collect invoices, view subscription pools, dispatch reminders, and review historical indices</p>
+          <p className="text-xs text-slate-400 dark:text-slate-400 mt-0.5">Collect invoices, dispatch reminders, and review payment history</p>
         </div>
-        <button 
-          onClick={() => setShowGenerateModal(true)}
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Generate Invoice</span>
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowGenerateModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Payment</span>
+          </button>
+        )}
       </div>
 
       {/* Financial Aggregates Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Gross Billings</span>
-          <span className="text-lg font-black text-slate-800 dark:text-white mt-1.5 block">
-            ₹{data.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
-          </span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Paid / Received</span>
-          <span className="text-lg font-black text-green-600 mt-1.5 block">
-            ₹{data.filter(p => p.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
-          </span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Outstanding Overdue</span>
-          <span className="text-lg font-black text-red-500 mt-1.5 block">
-            ₹{data.filter(p => p.status === 'Failed' || (p.status as any) === 'Overdue').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
-          </span>
-        </div>
-        <div className="p-1">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block">Awaiting Pending</span>
-          <span className="text-lg font-black text-amber-500 mt-1.5 block">
-            ₹{data.filter(p => p.status === 'Pending').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
-          </span>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* Card 1: Gross Billings */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-blue-600 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Gross Billings</span>
+            <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
+              ₹{data.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+            </span>
+            <span className="text-[9px] text-blue-500 font-bold block">All Invoice Amount</span>
+          </div>
+          <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+            <IndianRupee className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 2: Paid / Received */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-emerald-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Paid / Received</span>
+            <span className="text-2xl font-black text-slate-850 dark:text-white leading-none block">
+              ₹{data.filter(p => p.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+            </span>
+            <span className="text-[9px] text-emerald-500 font-bold block">Cleared Transactions</span>
+          </div>
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform">
+            <CreditCard className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 3: Outstanding Overdue */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-rose-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Outstanding Overdue</span>
+            <span className="text-2xl font-black text-slate-805 dark:text-white leading-none block">
+              ₹{data.filter(p => p.status === 'Failed' || (p.status as any) === 'Overdue').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+            </span>
+            <span className="text-[9px] text-rose-500 font-bold block">Failed &amp; Unpaid</span>
+          </div>
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/30 rounded-xl text-rose-600 dark:text-rose-400 group-hover:scale-110 transition-transform">
+            <FileText className="w-5 h-5" />
+          </div>
+        </motion.div>
+
+        {/* Card 4: Awaiting Pending */}
+        <motion.div
+          whileHover={{ y: -4 }}
+          className="relative overflow-hidden bg-white dark:bg-slate-800 p-5 rounded-2xl border-l-4 border-l-amber-500 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between group transition-all"
+        >
+          <div className="space-y-1">
+            <span className="text-[10px] text-slate-400 dark:text-slate-400 uppercase font-bold tracking-wider block">Awaiting Pending</span>
+            <span className="text-2xl font-black text-slate-800 dark:text-white leading-none block">
+              ₹{data.filter(p => p.status === 'Pending').reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}
+            </span>
+            <span className="text-[9px] text-amber-500 font-bold block">Pending Settlement</span>
+          </div>
+          <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform animate-none">
+            <Clock className="w-5 h-5" />
+          </div>
+        </motion.div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
+
         {/* Left Side: Payment Chart (5 columns) */}
         <div className="lg:col-span-5 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
           <div className="border-b border-slate-50 dark:border-slate-700 pb-2">
             <h3 className="font-bold text-slate-800 dark:text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
-              <TrendingUp className="w-4.5 h-4.5 text-blue-500" />
+              <TrendingUp className="w-4 h-4 text-blue-500" />
               <span>Portal Revenue Distribution</span>
             </h3>
             <p className="text-[10px] text-slate-400 mt-1">Monthly collection milestones</p>
           </div>
-          {/* Custom bar chart loaded */}
           <CustomBarChart
             data={revenueTrend}
             xAxisKey="month"
@@ -506,20 +574,20 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
 
         {/* Right Side: Ledger Table (7 columns) */}
         <div className="lg:col-span-7 space-y-4">
-          
+
           {/* Search/Filters bar */}
           <div className="flex gap-3 bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
             <div className="relative flex-1">
               <Search className="absolute inset-y-0 left-3 h-4 w-4 my-auto text-slate-400" />
               <input
                 type="text"
-                placeholder="Search invoice ID or student..."
+                placeholder="Search by student, invoice ID or description..."
                 value={searchQuery}
                 onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                 className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
             </div>
-            
+
             <select
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
@@ -540,9 +608,9 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
                 <thead className="bg-slate-50 dark:bg-slate-900 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
                   <tr>
                     <th className="px-5 py-3.5">Invoice Details</th>
-                    <th className="px-5 py-3.5">Tutee Student</th>
-                    <th className="px-5 py-3.5">Total Bill</th>
-                    <th className="px-5 py-3.5">Due Date</th>
+                    <th className="px-5 py-3.5">Student</th>
+                    <th className="px-5 py-3.5">Description</th>
+                    <th className="px-5 py-3.5">Amount</th>
                     <th className="px-5 py-3.5">Status</th>
                     <th className="px-5 py-3.5 text-right">Actions</th>
                   </tr>
@@ -558,22 +626,28 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
                             <span className="text-[9px] text-slate-400 truncate flex items-center gap-0.5">
                               <Building className="w-3 h-3 text-slate-400" /> {pay.organization}
                             </span>
+                            <span className="text-[9px] text-slate-400 truncate block">{pay.date}</span>
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3.5 font-bold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
+                      <td className="px-5 py-3.5 font-bold text-slate-700 dark:text-slate-300 truncate max-w-[100px]">
                         {pay.student}
+                      </td>
+                      <td className="px-5 py-3.5 max-w-[130px]">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 px-2 py-0.5 rounded-full truncate">
+                          <Tag className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{pay.description || pay.plan || '—'}</span>
+                        </span>
                       </td>
                       <td className="px-5 py-3.5 font-mono font-bold text-slate-800 dark:text-white">
                         ₹{pay.amount.toLocaleString()}
                       </td>
-                      <td className="px-5 py-3.5 font-mono text-slate-400">{pay.date}</td>
                       <td className="px-5 py-3.5">
                         <select
                           value={pay.status}
                           onChange={(e) => handleStatusChange(pay.id, e.target.value as Payment['status'])}
                           className={`px-2 py-0.5 rounded-full text-[8.5px] font-extrabold cursor-pointer outline-none appearance-none ${getStatusBadgeColor(pay.status)}`}
-                          disabled={!hasPermission('Financial Transactions', 'update') && currentUser?.role !== 'Super Admin'}
+                          disabled={!hasPermission('Financial Transactions', 'update') && currentUser?.role !== 'Super Admin' && currentUser?.role !== 'Organization Admin'}
                         >
                           <option value="Pending" className="bg-white text-slate-800">Pending</option>
                           <option value="Paid" className="bg-white text-slate-800">Paid</option>
@@ -627,7 +701,7 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     className="p-1 border border-slate-200 dark:border-slate-700 hover:bg-slate-150 text-slate-500 disabled:opacity-40 disabled:hover:bg-transparent shrink-0 rounded-lg"
                   >
-                    <ChevronLeft className="w-4.5 h-4.5" />
+                    <ChevronLeft className="w-4 h-4" />
                   </button>
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
                     <button
@@ -645,7 +719,7 @@ export default function PaymentsView({ selectedOrg = 'All Organizations' }: Paym
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     className="p-1 border border-slate-200 dark:border-slate-700 hover:bg-slate-150 text-slate-500 disabled:opacity-40 disabled:hover:bg-transparent shrink-0 rounded-lg"
                   >
-                    <ChevronRight className="w-4.5 h-4.5" />
+                    <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
               </div>

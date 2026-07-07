@@ -23,7 +23,8 @@ import {
   Mail,
   ChevronDown,
   Eye,
-  EyeOff
+  EyeOff,
+  AlertCircle
 } from 'lucide-react';
 import { mentors as initialMentors, sessions as mockSessions } from '../../data/mockData';
 import { Mentor, User } from '../../types';
@@ -83,6 +84,8 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
   useEffect(() => {
     if (!showAddMentorModal) {
       setShowSubjectDropdown(false);
+      setFormPrefix('');
+      setPrefixError('');
       setFormName('');
       setFormEmail('');
       setFormPhone('');
@@ -134,6 +137,12 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
 
   // Edit states for an existing mentor profile
   const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [editPrefix, setEditPrefix] = useState<'Mr' | 'Miss' | 'Mrs' | 'Dr' | ''>('');
+  const [editPrefixError, setEditPrefixError] = useState<string>('');
+  const [editName, setEditName] = useState<string>('');
+  const [editEmail, setEditEmail] = useState<string>('');
+  const [editPhone, setEditPhone] = useState<string>('');
+  const [editGender, setEditGender] = useState<'Male' | 'Female' | 'Others' | ''>('');
   const [editExperience, setEditExperience] = useState<string>('4 Years');
   const [editAvailability, setEditAvailability] = useState<'Full-time' | 'Part-time' | 'Weekends Only' | 'On-demand'>('Full-time');
   const [editPerformance, setEditPerformance] = useState<'Outstanding' | 'Exceeding' | 'Meeting' | 'Needs Review'>('Exceeding');
@@ -144,6 +153,12 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
   // Initialize edit states when selected mentor changes
   useEffect(() => {
     if (selectedMentorProfile) {
+      setEditPrefix(selectedMentorProfile.prefix || '');
+      setEditPrefixError('');
+      setEditName(selectedMentorProfile.name);
+      setEditEmail(selectedMentorProfile.email);
+      setEditPhone(selectedMentorProfile.phone || '');
+      setEditGender(selectedMentorProfile.gender || '');
       setEditExperience(selectedMentorProfile.experience);
       setEditAvailability(selectedMentorProfile.availability);
       setEditPerformance(selectedMentorProfile.performance);
@@ -160,6 +175,26 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       alert('Action Denied: You do not have permissions to update mentors.');
       return;
     }
+    if (!editPrefix) {
+      setEditPrefixError('Prefix is required');
+      return;
+    }
+    if (!editName.trim()) {
+      alert('Please enter a name');
+      return;
+    }
+    if (!editEmail.trim()) {
+      alert('Please enter an email');
+      return;
+    }
+    if (!editPhone.trim()) {
+      alert('Please enter a phone number');
+      return;
+    }
+    if (!editGender) {
+      alert('Please select a gender');
+      return;
+    }
     if (editSubjects.length === 0) {
       alert('Please select at least one subject');
       return;
@@ -167,9 +202,15 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
 
     const parsedRating = parseFloat(editRating) || 0.0;
 
-    const { error } = await supabase
+    // Update mentors table
+    const { error: mentorError } = await supabase
       .from('mentors')
       .update({
+        prefix: editPrefix,
+        name: editName,
+        email: editEmail,
+        phone: editPhone,
+        gender: editGender,
         experience: editExperience,
         availability: editAvailability,
         performance: editPerformance,
@@ -178,10 +219,26 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       })
       .eq('id', selectedMentorProfile.id);
 
-    if (error) {
-      console.error(error);
-      alert('Error updating mentor: ' + error.message);
+    if (mentorError) {
+      console.error(mentorError);
+      alert('Error updating mentor: ' + mentorError.message);
       return;
+    }
+
+    // Update corresponding users table profile match by original email
+    const { error: userError } = await supabase
+      .from('users')
+      .update({
+        prefix: editPrefix,
+        name: editName,
+        email: editEmail,
+        number: editPhone,
+        gender: editGender
+      })
+      .eq('email', selectedMentorProfile.email);
+
+    if (userError) {
+      console.warn('Warning: Mentor updated, but user login details failed to sync:', userError.message);
     }
 
     setData((prev) =>
@@ -189,6 +246,11 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
         m.id === selectedMentorProfile.id
           ? {
               ...m,
+              prefix: editPrefix,
+              name: editName,
+              email: editEmail,
+              phone: editPhone,
+              gender: editGender as any,
               experience: editExperience,
               availability: editAvailability,
               performance: editPerformance,
@@ -203,6 +265,11 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       prev
         ? {
             ...prev,
+            prefix: editPrefix,
+            name: editName,
+            email: editEmail,
+            phone: editPhone,
+            gender: editGender as any,
             experience: editExperience,
             availability: editAvailability,
             performance: editPerformance,
@@ -212,7 +279,7 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
         : null
     );
 
-    setToastMessage(`Mentor "${selectedMentorProfile.name}" updated successfully!`);
+    setToastMessage(`Mentor "${editName}" updated successfully!`);
     setShowToast(true);
     setIsEditing(false);
 
@@ -222,6 +289,8 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
   };
 
   // Form states for creating a new mentor
+  const [formPrefix, setFormPrefix] = useState<'Mr' | 'Miss' | 'Mrs' | 'Dr' | ''>('');
+  const [prefixError, setPrefixError] = useState<string>('');
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
@@ -255,6 +324,10 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
   const handleAddMentorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
+    if (!formPrefix) {
+      setPrefixError('Prefix is required');
+      return;
+    }
     if (!formName.trim() || !formEmail.trim()) {
       alert('Please enter a mentor name and email');
       return;
@@ -344,7 +417,8 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       lastLogin: 'Never',
       number: formPhone,
       gender: formGender as 'Male' | 'Female' | 'Others',
-      password: hashedPassword
+      password: hashedPassword,
+      prefix: formPrefix || undefined
     };
 
     const { error: userError } = await supabase.from('users').insert([newUser]);
@@ -370,7 +444,8 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
       upcomingSessions: 0,
       performance: formPerformance,
       avatar: uploadedAvatarUrl,
-      organization: resolvedOrg
+      organization: resolvedOrg,
+      prefix: formPrefix || undefined
     };
 
     const { error } = await supabase.from('mentors').insert([newMentor]);
@@ -489,7 +564,7 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                 )}
                 <div className="flex-1 min-w-0">
                   <h3 className="font-extrabold text-slate-800 dark:text-white text-sm truncate flex items-center gap-1.5">
-                    <span>{mentor.name}</span>
+                    <span>{mentor.prefix ? `${mentor.prefix} ` : ''}{mentor.name}</span>
                     {mentor.rating >= 4.9 && (
                       <Sparkles className="w-4 h-4 text-amber-500 shrink-0" title="Top Rated Faculty" />
                     )}
@@ -642,7 +717,7 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                     )}
                     <div>
                       <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-black tracking-tight">{selectedMentorProfile.name}</h2>
+                        <h2 className="text-lg font-black tracking-tight">{selectedMentorProfile.prefix ? `${selectedMentorProfile.prefix} ` : ''}{selectedMentorProfile.name}</h2>
                         <span className={`px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase ${
                           selectedMentorProfile.performance === 'Outstanding'
                             ? 'bg-green-500/25 text-green-300'
@@ -658,6 +733,104 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                 {/* Profile details body */}
                 <div className="p-6 space-y-5 text-xs max-h-[65vh] overflow-y-auto">
                   <div className="grid grid-cols-2 gap-4">
+                    {/* Editable Name fields */}
+                    {isEditing && (
+                      <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl col-span-2">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Mentor Name</span>
+                        <div className="flex gap-2">
+                          <select
+                            required
+                            value={editPrefix}
+                            onChange={(e) => {
+                              setEditPrefix(e.target.value as any);
+                              setEditPrefixError('');
+                            }}
+                            className={`w-20 p-1.5 bg-white dark:bg-slate-800 border rounded-lg focus:outline-none text-xs font-semibold ${
+                              editPrefixError
+                                ? 'border-red-500 focus:ring-red-500/20'
+                                : 'border-slate-200 dark:border-slate-700'
+                            }`}
+                          >
+                            <option value="" disabled>Prefix</option>
+                            <option value="Mr">Mr</option>
+                            <option value="Miss">Miss</option>
+                            <option value="Mrs">Mrs</option>
+                            <option value="Dr">Dr</option>
+                          </select>
+                          <input
+                            type="text"
+                            required
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="flex-1 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none text-xs font-bold font-sans"
+                          />
+                        </div>
+                        {editPrefixError && (
+                          <p className="text-[10px] text-red-500 mt-1 font-bold flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span>{editPrefixError}</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Editable Email and Phone fields */}
+                    {isEditing && (
+                      <>
+                        <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Professional Email</span>
+                          <input
+                            type="email"
+                            required
+                            value={editEmail}
+                            onChange={(e) => setEditEmail(e.target.value)}
+                            className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none text-xs font-bold font-sans"
+                          />
+                        </div>
+                        <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Phone Number</span>
+                          <input
+                            type="tel"
+                            required
+                            value={editPhone}
+                            onChange={(e) => setEditPhone(e.target.value)}
+                            className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none text-xs font-bold font-sans"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* Editable Gender field */}
+                    {isEditing && (
+                      <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl col-span-2">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Gender</span>
+                        <select
+                          required
+                          value={editGender}
+                          onChange={(e) => setEditGender(e.target.value as any)}
+                          className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none text-xs font-semibold"
+                        >
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Others">Others</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {/* View Phone and Gender fields (when not editing) */}
+                    {!isEditing && (
+                      <>
+                        <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Phone Number</span>
+                          <strong className="text-sm font-black text-slate-700 dark:text-slate-200 mt-1 block">{selectedMentorProfile.phone || 'N/A'}</strong>
+                        </div>
+                        <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Gender</span>
+                          <strong className="text-sm font-black text-slate-700 dark:text-slate-200 mt-1 block">{selectedMentorProfile.gender || 'N/A'}</strong>
+                        </div>
+                      </>
+                    )}
+
                     <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
                       <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Teaching Experience</span>
                       {isEditing ? (
@@ -683,7 +856,7 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                     <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
                       <span className="text-[9px] uppercase font-bold text-slate-400 block mb-1">Performance Index (Rating)</span>
                       {isEditing ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mt-1">
                           <Star className="w-4 h-4 fill-amber-400 text-amber-400 shrink-0" />
                           <input
                             type="number"
@@ -1045,31 +1218,57 @@ export default function MentorsView({ selectedOrg = 'All Organizations' }: Mento
                       </div>
                     )}
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans">
-                      <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Mentor Name</label>
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Mentor Name</label>
+                      <div className="flex gap-2 min-w-0">
+                        <select
+                          required
+                          value={formPrefix}
+                          onChange={(e) => {
+                            setFormPrefix(e.target.value as any);
+                            setPrefixError('');
+                          }}
+                          className={`w-24 shrink-0 p-2.5 bg-slate-50 dark:bg-slate-900 border rounded-xl focus:outline-none focus:ring-2 text-slate-800 dark:text-slate-100 font-medium ${
+                            prefixError
+                              ? 'border-red-500 focus:ring-red-500/20'
+                              : 'border-slate-200 dark:border-slate-700 focus:ring-blue-500/20'
+                          }`}
+                        >
+                          <option value="" disabled>Prefix</option>
+                          <option value="Mr">Mr</option>
+                          <option value="Miss">Miss</option>
+                          <option value="Mrs">Mrs</option>
+                          <option value="Dr">Dr</option>
+                        </select>
                         <input
                           type="text"
                           required
                           placeholder="Enter mentor's full name"
                           value={formName}
                           onChange={(e) => setFormName(e.target.value)}
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          className="flex-1 min-w-0 p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
                         />
                       </div>
-                      <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Professional Email</label>
-                        <div className="relative">
-                          <Mail className="absolute inset-y-0 left-2.5 h-3.5 w-3.5 my-auto text-slate-400 pointer-events-none" />
-                          <input
-                            type="email"
-                            required
-                            placeholder="Enter professional email"
-                            value={formEmail}
-                            onChange={(e) => setFormEmail(e.target.value)}
-                            className="w-full pl-8 pr-2.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                          />
-                        </div>
+                      {prefixError && (
+                        <p className="text-[10px] text-red-500 mt-1 font-bold flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>{prefixError}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Professional Email</label>
+                      <div className="relative">
+                        <Mail className="absolute inset-y-0 left-2.5 h-3.5 w-3.5 my-auto text-slate-400 pointer-events-none" />
+                        <input
+                          type="email"
+                          required
+                          placeholder="Enter professional email"
+                          value={formEmail}
+                          onChange={(e) => setFormEmail(e.target.value)}
+                          className="w-full pl-8 pr-2.5 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                        />
                       </div>
                     </div>
 

@@ -50,6 +50,7 @@ CREATE TABLE mentors (
   organization TEXT NOT NULL,
   phone TEXT,
   gender TEXT CHECK (gender IN ('Male', 'Female', 'Others')),
+  prefix TEXT CHECK (prefix IN ('Mr', 'Miss', 'Mrs', 'Dr')),
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -88,6 +89,7 @@ CREATE TABLE users (
   number TEXT,
   gender TEXT CHECK (gender IN ('Male', 'Female', 'Others')),
   password TEXT,
+  prefix TEXT CHECK (prefix IN ('Mr', 'Miss', 'Mrs', 'Dr')),
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -147,10 +149,12 @@ CREATE TABLE payments (
   status TEXT NOT NULL CHECK (status IN ('Paid', 'Pending', 'Failed', 'Refunded')),
   date TEXT NOT NULL,
   "invoiceNumber" TEXT NOT NULL,
-  plan TEXT NOT NULL CHECK (plan IN ('Monthly Pro', 'Annual Elite', 'Quarterly Basic', 'One-Time Session')),
+  description TEXT NOT NULL DEFAULT '',  -- Free-text payment purpose (e.g. Monthly Fee, Exam Fee, Book Charges)
+  plan TEXT,                             -- Legacy field, kept for backwards compatibility
   "refundAmount" NUMERIC,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
 
 -- 9. Audit Logs table
 CREATE TABLE audit_logs (
@@ -405,6 +409,7 @@ CREATE POLICY mentors_select ON mentors FOR SELECT USING (
   get_current_user_role() = 'Super Admin'
   OR (organization = get_current_user_org() AND check_permission('User and Role Management', 'read'))
   OR LOWER(email) = LOWER(auth.jwt() ->> 'email')
+  OR (get_current_user_role() = 'Student' AND organization = get_current_user_org())
 );
 CREATE POLICY mentors_insert ON mentors FOR INSERT WITH CHECK (
   get_current_user_role() = 'Super Admin'
