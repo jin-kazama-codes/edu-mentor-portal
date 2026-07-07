@@ -19,7 +19,8 @@ import {
   PlayCircle,
   Plus,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Award
 } from 'lucide-react';
 import { CustomAreaLineChart, CustomBarChart } from '../Charts';
 import { reportsAnalytics as fallbackAnalytics, sessions as fallbackSessions } from '../../data/mockData';
@@ -55,6 +56,7 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
   const [mentorActivity, setMentorActivity] = useState<any[]>([]);
   const [studentMentor, setStudentMentor] = useState<any>(null);
   const [studentDetails, setStudentDetails] = useState<any>(null);
+  const [studentEvaluation, setStudentEvaluation] = useState<any>(null);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -292,7 +294,7 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
       const { data: ma } = await maQuery.order('id');
       if (ma) setMentorActivity(ma);
 
-      // 5. Fetch student mentor and profile details if student
+      // 5. Fetch student mentor, profile, and evaluation details if student
       if (currentUser.role === 'Student') {
         const { data: studentProfile } = await supabase
           .from('students')
@@ -311,11 +313,37 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
               setStudentMentor(mentorRec);
             }
           }
+          const { data: evalRec } = await supabase
+            .from('evaluations')
+            .select('*')
+            .eq('studentName', studentProfile.name)
+            .maybeSingle();
+          if (evalRec) {
+            setStudentEvaluation(evalRec);
+          }
         }
       }
     }
 
     loadDashboardData();
+
+    const channel = supabase
+      .channel('dashboard-realtime-channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'evaluations' },
+        () => { loadDashboardData(); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'students' },
+        () => { loadDashboardData(); }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [selectedOrg, currentUser]);
 
   // Executive Statistics Cards Data
@@ -326,7 +354,7 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
     { id: 4, label: 'Sessions Today', value: String(counts.sessionsToday), change: 'Syncing live', icon: CalendarDays, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30', route: 'calendar' },
     { id: 5, label: 'Upcoming Sessions', value: String(counts.upcomingSessions), change: 'Across all batches', icon: Clock, color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/30', route: 'calendar' },
     { id: 6, label: 'Revenue This Month', value: `₹${counts.revenue.toLocaleString()}`, change: counts.revenueGrowthText, icon: IndianRupee, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30', route: 'payments', permission: () => currentUser?.role === 'Super Admin' || currentUser?.role === 'Organization Admin' },
-    { id: 7, label: 'Pending Evaluations', value: String(counts.pendingEvals), change: counts.evalsGrowthText, icon: ClipboardList, color: 'text-rose-500 bg-rose-50 dark:bg-rose-950/30', route: 'evaluations', permission: () => currentUser?.role !== 'Student' && currentUser?.role !== 'Assistant' },
+    { id: 7, label: 'Pending Evaluations', value: String(counts.pendingEvals), change: counts.evalsGrowthText, icon: ClipboardList, color: 'text-rose-500 bg-rose-50 dark:bg-rose-950/30', route: 'evaluations', permission: () => currentUser?.role !== 'Student' },
     { id: 8, label: 'Unread Messages', value: String(counts.unreadMsgs), change: 'From channels', icon: MessageSquare, color: 'text-sky-500 bg-sky-50 dark:bg-sky-950/30', route: 'messaging' }
   ].filter(stat => !stat.permission || stat.permission());
 
@@ -441,6 +469,30 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
               </p>
             </div>
           </div>
+
+          {/* Stat 5: Academic Evaluation */}
+          {studentEvaluation && (
+            <div 
+              className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-slate-900/60 dark:to-slate-850/40 p-4 rounded-2xl border border-blue-100/40 dark:border-slate-750 shadow-sm flex flex-col justify-between cursor-pointer hover:shadow-md transition-shadow relative overflow-hidden group" 
+              onClick={() => onNavigate('evaluations')}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 tracking-wide uppercase">Academic Rating</span>
+                <div className="p-2 rounded-xl text-blue-600 bg-blue-100/60 dark:bg-blue-950/40">
+                  <Award className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3 relative z-10">
+                <h3 className="text-xl md:text-2xl font-black text-blue-600 dark:text-white leading-tight">
+                  {Math.round((studentEvaluation.academic + studentEvaluation.behaviour + studentEvaluation.attendance + studentEvaluation.communication) / 4)}%
+                </h3>
+                <p className="text-[10px] text-blue-600 dark:text-teal-400 font-bold mt-1 flex items-center gap-0.5">
+                  <span>View full report card</span>
+                  <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Student Content Panels */}
@@ -678,7 +730,7 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
           </h1>
           <p className="text-xs text-slate-350 mt-1">
             Viewing metrics for <strong className="text-teal-400">{currentUser?.role === 'Super Admin' ? selectedOrg : currentUser?.organization}</strong>.
-            {counts.pendingEvals > 0 && currentUser?.role !== 'Assistant' && ` There are ${counts.pendingEvals} urgent evaluation requests pending approval.`}
+            {counts.pendingEvals > 0 && currentUser?.role !== 'Student' && ` There are ${counts.pendingEvals} urgent evaluation requests pending approval.`}
           </p>
         </div>
         <div className="flex items-center gap-2.5 shrink-0 relative z-10">

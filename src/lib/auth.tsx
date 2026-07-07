@@ -310,9 +310,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser) return false;
     if (currentUser.role === 'Super Admin' || currentUser.role === 'Organization Admin') return true;
 
-    // Special Assistant check: inherit from Mentor, but explicitly deny Payments, Evaluations, etc.
+    // Special Assistant check: inherit from Mentor, but explicitly deny Payments, etc.
     if (currentUser.role === 'Assistant') {
-      const forbiddenModules = ['Financial Transactions', 'Student Evaluations', 'Payments & Subscriptions', 'Payments'];
+      const forbiddenModules = ['Financial Transactions', 'Payments & Subscriptions', 'Payments'];
       if (forbiddenModules.some(m => module.toLowerCase().includes(m.toLowerCase()))) {
         return false;
       }
@@ -326,7 +326,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : false;
       }
       if (role === 'Assistant') {
-        return ['Session Scheduling', 'Content Library', 'Messaging'].includes(mod)
+        return ['Session Scheduling', 'Content Library', 'Messaging', 'Student Evaluations'].includes(mod)
           ? ['read', 'create', 'update'].includes(act)
           : false;
       }
