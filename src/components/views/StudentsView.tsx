@@ -37,6 +37,30 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { hashPassword } from '../../utils/crypto';
 
+function StudentAvatar({ src, name, className }: { src?: string; name: string; className?: string }) {
+  const [error, setError] = useState(false);
+
+  const isValidUrl = src && (src.startsWith('http') || src.startsWith('data:image') || src.startsWith('/'));
+
+  if (!isValidUrl || error) {
+    return (
+      <div className={`rounded-xl bg-slate-100 dark:bg-slate-750 shrink-0 flex items-center justify-center text-slate-650 dark:text-slate-300 font-extrabold select-none ${className}`}>
+        {name.trim().charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      referrerPolicy="no-referrer"
+      onError={() => setError(true)}
+      className={`rounded-xl object-cover shrink-0 ${className}`}
+    />
+  );
+}
+
 interface StudentsViewProps {
   defaultAddOpen?: boolean;
   selectedOrg?: string;
@@ -677,11 +701,10 @@ export default function StudentsView({
               {/* Header profile info */}
               <div className="p-4.5 border-b border-slate-100/60 dark:border-slate-700/60 flex items-center justify-between">
                 <div className="flex gap-3 min-w-0">
-                  <img
+                  <StudentAvatar
                     src={stud.avatar}
-                    alt={stud.name}
-                    referrerPolicy="no-referrer"
-                    className={`w-11 h-11 rounded-xl object-cover shrink-0 ${statusRingColor}`}
+                    name={stud.name}
+                    className={`w-11 h-11 ${statusRingColor}`}
                   />
                   <div className="min-w-0 flex flex-col justify-center">
                     <h3 className="font-extrabold text-slate-800 dark:text-white text-xs truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{stud.name}</h3>
@@ -883,11 +906,10 @@ export default function StudentsView({
                     <X className="w-4.5 h-4.5" />
                   </button>
                   <div className="flex gap-4 items-center">
-                    <img
+                    <StudentAvatar
                       src={selectedStudent.avatar}
-                      alt={selectedStudent.name}
-                      referrerPolicy="no-referrer"
-                      className="w-16 h-16 rounded-xl object-cover ring-2 ring-white/30"
+                      name={selectedStudent.name}
+                      className="w-16 h-16 ring-2 ring-white/30"
                     />
                     <div>
                       <div className="flex items-center gap-2">

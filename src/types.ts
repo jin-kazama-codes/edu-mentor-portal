@@ -167,5 +167,7 @@ export interface StudentAttendance {
   status: AttendanceStatus;
   organization: string;
   created_at?: string;
+  day_begin?: string;
+  day_end?: string;
 }
 
