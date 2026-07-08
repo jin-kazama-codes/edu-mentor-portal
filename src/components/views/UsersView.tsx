@@ -23,7 +23,10 @@ import {
   Building2,
   Lock,
   X,
-  CheckCircle
+  CheckCircle,
+  GraduationCap,
+  BookOpen,
+  Users2
 } from 'lucide-react';
 import { users as initialUsers } from '../../data/mockData';
 import { User, UserRole } from '../../types';
@@ -103,6 +106,7 @@ export default function UsersView() {
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<User | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [lockedRole, setLockedRole] = useState<UserRole | null>(null);
 
   // Form states for Invite New User
   const [inviteName, setInviteName] = useState('');
@@ -115,12 +119,50 @@ export default function UsersView() {
   const [inviteNumber, setInviteNumber] = useState('');
   const [inviteGender, setInviteGender] = useState<'Male' | 'Female' | 'Others'>('Male');
   const [invitePassword, setInvitePassword] = useState('');
+  const [inviteMentorId, setInviteMentorId] = useState('');
+  const [inviteStudentMentor, setInviteStudentMentor] = useState('Awaiting Allocation');
+  const [inviteMentorsList, setInviteMentorsList] = useState<User[]>([]);
+  const [inviteAge, setInviteAge] = useState(16);
+  const [inviteGrade, setInviteGrade] = useState('11th Grade');
+  const [inviteGuardian, setInviteGuardian] = useState('');
+  const [inviteProgress, setInviteProgress] = useState(0);
+  const [inviteAttendance, setInviteAttendance] = useState(0);
+  const todayFormatted = () => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  };
+  const [inviteSessionDate, setInviteSessionDate] = useState(todayFormatted());
+  const [inviteSessionTopic, setInviteSessionTopic] = useState('');
+  const [inviteStudentStatus, setInviteStudentStatus] = useState<'Active' | 'On Leave' | 'Graduated' | 'Suspended'>('Active');
 
   useEffect(() => {
     if (currentUser && currentUser.role !== 'Super Admin') {
       setInviteOrg(currentUser.organization);
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const orgToFilter = currentUser.role === 'Super Admin' ? inviteOrg : currentUser.organization;
+    if (!orgToFilter) {
+      setInviteMentorsList([]);
+      return;
+    }
+    async function fetchMentors() {
+      const { data: mnts, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'Mentor')
+        .eq('organization', orgToFilter)
+        .order('name');
+      if (!error && mnts) {
+        setInviteMentorsList(mnts);
+      } else {
+        setInviteMentorsList([]);
+      }
+    }
+    fetchMentors();
+  }, [inviteOrg, currentUser]);
 
   // Form states for Edit User
   const [editName, setEditName] = useState('');
@@ -144,6 +186,46 @@ export default function UsersView() {
     setInviteNumber('');
     setInviteGender('Male');
     setInvitePassword('');
+    setLockedRole(null);
+    setInviteMentorId('');
+    setInviteStudentMentor('Awaiting Allocation');
+    setInviteAge(16);
+    setInviteGrade('11th Grade');
+    setInviteGuardian('');
+    setInviteProgress(0);
+    setInviteAttendance(0);
+    setInviteSessionDate(todayFormatted());
+    setInviteSessionTopic('');
+    setInviteStudentStatus('Active');
+    if (currentUser && currentUser.role !== 'Super Admin') {
+      setInviteOrg(currentUser.organization);
+    } else {
+      setInviteOrg('');
+    }
+    setShowInviteModal(true);
+  };
+
+  const handleOpenInviteModalWithRole = (role: UserRole) => {
+    setInviteName('');
+    setInviteEmail('');
+    setInviteRole(role);
+    setInviteStatus('Active');
+    setInviteAvatarFile(null);
+    setInviteAvatarPreview('');
+    setInviteNumber('');
+    setInviteGender('Male');
+    setInvitePassword('');
+    setLockedRole(role);
+    setInviteMentorId('');
+    setInviteStudentMentor('Awaiting Allocation');
+    setInviteAge(16);
+    setInviteGrade('11th Grade');
+    setInviteGuardian('');
+    setInviteProgress(0);
+    setInviteAttendance(0);
+    setInviteSessionDate(todayFormatted());
+    setInviteSessionTopic('');
+    setInviteStudentStatus('Active');
     if (currentUser && currentUser.role !== 'Super Admin') {
       setInviteOrg(currentUser.organization);
     } else {
@@ -230,6 +312,17 @@ export default function UsersView() {
     setInviteNumber('');
     setInviteGender('Male');
     setInvitePassword('');
+    setLockedRole(null);
+    setInviteMentorId('');
+    setInviteStudentMentor('Awaiting Allocation');
+    setInviteAge(16);
+    setInviteGrade('11th Grade');
+    setInviteGuardian('');
+    setInviteProgress(0);
+    setInviteAttendance(0);
+    setInviteSessionDate(todayFormatted());
+    setInviteSessionTopic('');
+    setInviteStudentStatus('Active');
   };
 
   const handleInviteSubmit = async (e: React.FormEvent) => {
@@ -299,13 +392,16 @@ export default function UsersView() {
       email: inviteEmail,
       role: inviteRole,
       organization: resolvedOrg,
-      status: inviteStatus,
+      status: inviteRole === 'Student'
+        ? (inviteStudentStatus === 'Suspended' ? 'Inactive' : 'Active')
+        : inviteStatus,
       avatar: uploadedAvatarUrl,
       createdDate: new Date().toISOString().split('T')[0],
       lastLogin: 'Never',
       number: inviteNumber,
       gender: inviteGender,
-      password: hashedPassword
+      password: hashedPassword,
+      mentor_id: inviteRole === 'Assistant' && inviteMentorId ? inviteMentorId : undefined
     };
 
     const { error } = await supabase.from('users').insert([newUser]);
@@ -313,6 +409,73 @@ export default function UsersView() {
       console.error(error);
       alert('Error inviting user: ' + error.message);
       return;
+    }
+
+    if (inviteRole === 'Mentor') {
+      const newMentor = {
+        id: `ment-${Date.now()}`,
+        name: inviteName,
+        email: inviteEmail,
+        subjects: [],
+        studentsAssigned: [],
+        experience: '4 Years',
+        rating: 5.0,
+        availability: 'Full-time',
+        upcomingSessions: 0,
+        performance: 'Meeting',
+        avatar: uploadedAvatarUrl,
+        organization: resolvedOrg,
+        phone: inviteNumber || undefined,
+        gender: inviteGender
+      };
+
+      const { error: mentorError } = await supabase.from('mentors').insert([newMentor]);
+      if (mentorError) {
+        console.error('Error inserting mentor profile:', mentorError);
+        alert('Error creating mentor profile: ' + mentorError.message + '. User creation rolled back.');
+        await supabase.from('users').delete().eq('id', newUser.id);
+        return;
+      }
+    } else if (inviteRole === 'Student') {
+      const orgPrefix = resolvedOrg
+        .split(' ')
+        .map((w: string) => w.charAt(0).toUpperCase())
+        .join('');
+      const uniqueNum = Date.now().toString().slice(-5);
+      const studentId = `${orgPrefix}-${new Date().getFullYear()}-${uniqueNum}`;
+
+      const sessionDateLabel = inviteSessionDate
+        ? new Date(inviteSessionDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+        : '';
+      const upcomingSession = inviteSessionTopic.trim()
+        ? `${sessionDateLabel} - ${inviteSessionTopic.trim()}`
+        : sessionDateLabel || 'TBD';
+
+      const newStudent = {
+        id: studentId,
+        name: inviteName,
+        email: inviteEmail,
+        phone: inviteNumber || undefined,
+        gender: inviteGender,
+        age: Number(inviteAge),
+        grade: inviteGrade,
+        mentor: inviteStudentMentor || 'Awaiting Allocation',
+        guardian: inviteGuardian || 'Not Provided',
+        progress: Number(inviteProgress),
+        attendance: Number(inviteAttendance),
+        upcomingSession,
+        status: inviteStudentStatus,
+        avatar: uploadedAvatarUrl,
+        organization: resolvedOrg
+      };
+
+      const { error: studentError } = await supabase.from('students').insert([newStudent]);
+      if (studentError) {
+        console.error('Error inserting student profile:', studentError);
+        alert('Error creating student profile: ' + studentError.message + '. User creation rolled back.');
+        await supabase.from('users').delete().eq('id', newUser.id);
+        return;
+      }
     }
 
     await logSecurityAudit(
@@ -671,7 +834,7 @@ export default function UsersView() {
           <h1 className="text-xl font-extrabold text-slate-800 dark:text-white tracking-tight">User Directory</h1>
           <p className="text-xs text-slate-400 dark:text-slate-400 mt-0.5">Maintain identity, role-based controls, and organizations allocations</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleExportCSV}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
@@ -687,6 +850,31 @@ export default function UsersView() {
               <Plus className="w-4 h-4" />
               <span>Add Organization Admin</span>
             </button>
+          )}
+          {currentUser?.role === 'Organization Admin' && (
+            <>
+              <button
+                onClick={() => handleOpenInviteModalWithRole('Mentor')}
+                className="flex items-center gap-1.5 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+              >
+                <GraduationCap className="w-4 h-4" />
+                <span>Add New Mentor</span>
+              </button>
+              <button
+                onClick={() => handleOpenInviteModalWithRole('Assistant')}
+                className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Add Assistant</span>
+              </button>
+              <button
+                onClick={() => handleOpenInviteModalWithRole('Student')}
+                className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+              >
+                <Users2 className="w-4 h-4" />
+                <span>Add New Student</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -962,26 +1150,28 @@ export default function UsersView() {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-750 shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100"
+                className={`relative w-full ${inviteRole === 'Student' ? 'max-w-lg' : 'max-w-md'} bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-750 shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100`}
               >
-                <div className="bg-blue-600 text-white p-5 flex items-center justify-between">
+                <div className={`text-white p-5 flex items-center justify-between ${lockedRole === 'Mentor' ? 'bg-teal-600' : lockedRole === 'Assistant' ? 'bg-violet-600' : lockedRole === 'Student' ? 'bg-amber-500' : 'bg-blue-600'}`}>
                   <div>
                     <h2 className="text-sm font-black tracking-tight flex items-center gap-1.5">
-                      <UserCheck className="w-4.5 h-4.5" />
-                      <span>Invite New Platform Associate</span>
+                      {lockedRole === 'Mentor' ? <GraduationCap className="w-4.5 h-4.5" /> : lockedRole === 'Assistant' ? <BookOpen className="w-4.5 h-4.5" /> : lockedRole === 'Student' ? <Users2 className="w-4.5 h-4.5" /> : <UserCheck className="w-4.5 h-4.5" />}
+                      <span>{lockedRole ? `Add New ${lockedRole}` : 'Invite New Platform Associate'}</span>
                     </h2>
-                    <p className="text-[10px] text-blue-100 mt-0.5">Disseminate access credentials and secure roles</p>
+                    <p className="text-[10px] text opacity-80 mt-0.5">
+                      {lockedRole === 'Mentor' ? 'Add a mentor to your organization' : lockedRole === 'Assistant' ? 'Add a teaching assistant to your organization' : lockedRole === 'Student' ? 'Enroll a new student in your organization' : 'Disseminate access credentials and secure roles'}
+                    </p>
                   </div>
                   <button
                     onClick={handleCloseInviteModal}
-                    className="p-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white transition-all cursor-pointer"
+                    className={`p-1.5 rounded-lg text-white transition-all cursor-pointer ${lockedRole === 'Mentor' ? 'bg-teal-700 hover:bg-teal-800' : lockedRole === 'Assistant' ? 'bg-violet-700 hover:bg-violet-800' : lockedRole === 'Student' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'}`}
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
                 <form onSubmit={handleInviteSubmit}>
-                  <div className="p-5 space-y-4 text-xs">
+                  <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-xs">
                     {/* Avatar Upload */}
                     <div className="flex flex-col items-center justify-center pb-2 border-b border-slate-100 dark:border-slate-750">
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-2">User Avatar</label>
@@ -1017,100 +1207,352 @@ export default function UsersView() {
                       </p>
                     </div>
 
-                    <div>
-                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Full Name</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Faisal Ahmad"
-                        value={inviteName}
-                        onChange={(e) => setInviteName(e.target.value)}
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                      />
-                    </div>
+                    {inviteRole === 'Student' ? (
+                      <>
+                        {/* Student Name & Age */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Student Full Name</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Faisal Ahmad"
+                              value={inviteName}
+                              onChange={(e) => setInviteName(e.target.value)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Age</label>
+                            <input
+                              type="number"
+                              required
+                              min={5}
+                              max={99}
+                              value={inviteAge}
+                              onChange={(e) => setInviteAge(Number(e.target.value))}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            />
+                          </div>
+                        </div>
 
-                    <div>
-                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Email Address</label>
-                      <input
-                        type="email"
-                        required
-                        placeholder="e.g. user@edportal.com"
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                      />
-                    </div>
+                        {/* Phone & Email */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phone Number</label>
+                            <input
+                              type="tel"
+                              placeholder="e.g. +91 98765 43210"
+                              value={inviteNumber}
+                              onChange={(e) => setInviteNumber(e.target.value)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Email Address</label>
+                            <input
+                              type="email"
+                              required
+                              placeholder="e.g. user@edportal.com"
+                              value={inviteEmail}
+                              onChange={(e) => setInviteEmail(e.target.value)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            />
+                          </div>
+                        </div>
 
-                    <div>
-                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Password</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Enter temporary password"
-                        value={invitePassword}
-                        onChange={(e) => setInvitePassword(e.target.value)}
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                      />
-                    </div>
+                        {/* Password */}
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Login Password</label>
+                          <input
+                            type="password"
+                            required
+                            placeholder="Create student login password"
+                            value={invitePassword}
+                            onChange={(e) => setInvitePassword(e.target.value)}
+                            className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phone Number</label>
-                        <input
-                          type="tel"
-                          placeholder="e.g. +91 98765 43210"
-                          value={inviteNumber}
-                          onChange={(e) => setInviteNumber(e.target.value)}
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Gender</label>
-                        <select
-                          value={inviteGender}
-                          onChange={(e) => setInviteGender(e.target.value as any)}
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                        >
-                          <option value="Male">Male</option>
-                          <option value="Female">Female</option>
-                          <option value="Others">Others</option>
-                        </select>
-                      </div>
-                    </div>
+                        {/* Gender Buttons */}
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-2">Gender</label>
+                          <div className="flex gap-2">
+                            {(['Male', 'Female', 'Others'] as const).map((g) => (
+                              <button
+                                key={g}
+                                type="button"
+                                onClick={() => setInviteGender(g)}
+                                className={`flex-1 py-2 rounded-xl text-[10px] font-bold border-2 transition-all cursor-pointer ${
+                                  inviteGender === g
+                                    ? g === 'Male'
+                                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400'
+                                      : g === 'Female'
+                                      ? 'border-pink-500 bg-pink-50 dark:bg-pink-950/30 text-pink-600 dark:text-pink-400'
+                                      : 'border-purple-500 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400'
+                                    : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-400 hover:border-slate-300'
+                                }`}
+                              >
+                                {g === 'Male' ? '♂ Male' : g === 'Female' ? '♀ Female' : '⚧ Others'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Role Allocation</label>
-                        <select
-                          value={inviteRole}
-                          onChange={(e) => setInviteRole(e.target.value as UserRole)}
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                        >
-                          {currentUser?.role === 'Super Admin' ? (
-                            <option value="Organization Admin">Organization Admin</option>
-                          ) : (
-                            <>
-                              <option value="Mentor">Mentor</option>
-                              <option value="Assistant">Assistant</option>
-                              <option value="Student">Student</option>
-                            </>
+                        {/* Grade Level & Primary Guardian */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Grade Level</label>
+                            <select
+                              value={inviteGrade}
+                              onChange={(e) => setInviteGrade(e.target.value)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            >
+                              <option value="11th Grade">11th Grade</option>
+                              <option value="12th Grade">12th Grade</option>
+                              <option value="10th Grade">10th Grade</option>
+                              <option value="9th Grade">9th Grade</option>
+                              <option value="College Freshman">College Freshman</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Primary Guardian</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Tariq Ahmad (Father)"
+                              value={inviteGuardian}
+                              onChange={(e) => setInviteGuardian(e.target.value)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Assigned Mentor & Status */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Assigned Mentor</label>
+                            <select
+                              value={inviteStudentMentor}
+                              onChange={(e) => setInviteStudentMentor(e.target.value)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            >
+                              <option value="Awaiting Allocation">Awaiting Allocation</option>
+                              {inviteMentorsList.map((m) => (
+                                <option key={m.id} value={m.name}>
+                                  {m.name} ({m.email})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Status</label>
+                            <select
+                              value={inviteStudentStatus}
+                              onChange={(e) => setInviteStudentStatus(e.target.value as any)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            >
+                              <option value="Active">Active</option>
+                              <option value="On Leave">On Leave</option>
+                              <option value="Graduated">Graduated</option>
+                              <option value="Suspended">Suspended</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Initial Progress & Attendance */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Initial Progress ({inviteProgress}%)</label>
+                            <div className="mt-2">
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={inviteProgress}
+                                onChange={(e) => setInviteProgress(Number(e.target.value))}
+                                className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                              />
+                              <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-0.5">
+                                <span>0%</span><span className="font-bold text-blue-500">{inviteProgress}%</span><span>100%</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Initial Attendance ({inviteAttendance}%)</label>
+                            <div className="mt-2">
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={inviteAttendance}
+                                onChange={(e) => setInviteAttendance(Number(e.target.value))}
+                                className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
+                              />
+                              <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-0.5">
+                                <span>0%</span><span className="font-bold text-teal-500">{inviteAttendance}%</span><span>100%</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Upcoming Session */}
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Upcoming Session Topic / Date</label>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[9px] text-slate-400 font-semibold mb-1">Session Date</label>
+                              <input
+                                type="date"
+                                value={inviteSessionDate}
+                                onChange={(e) => setInviteSessionDate(e.target.value)}
+                                className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] text-slate-400 font-semibold mb-1">Session Topic</label>
+                              <input
+                                type="text"
+                                value={inviteSessionTopic}
+                                onChange={(e) => setInviteSessionTopic(e.target.value)}
+                                placeholder="e.g. Derivative Integration"
+                                className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                              />
+                            </div>
+                          </div>
+                          {(inviteSessionDate || inviteSessionTopic) && (
+                            <p className="mt-1.5 text-[10px] text-slate-400 font-medium bg-slate-50 dark:bg-slate-900/40 px-2.5 py-1.5 rounded-lg border border-slate-100 dark:border-slate-700">
+                              Preview: <span className="text-slate-600 dark:text-slate-300 font-semibold">
+                                {inviteSessionDate ? new Date(inviteSessionDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}
+                                {inviteSessionTopic.trim() ? ` - ${inviteSessionTopic.trim()}` : ''}
+                              </span>
+                            </p>
                           )}
-                        </select>
-                      </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Full Name</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Faisal Ahmad"
+                            value={inviteName}
+                            onChange={(e) => setInviteName(e.target.value)}
+                            className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
 
-                      <div>
-                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Initial Status</label>
-                        <select
-                          value={inviteStatus}
-                          onChange={(e) => setInviteStatus(e.target.value as any)}
-                          className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
-                        >
-                          <option value="Active">Active</option>
-                          <option value="Pending">Pending</option>
-                          <option value="Inactive">Inactive</option>
-                        </select>
-                      </div>
-                    </div>
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Email Address</label>
+                          <input
+                            type="email"
+                            required
+                            placeholder="e.g. user@edportal.com"
+                            value={inviteEmail}
+                            onChange={(e) => setInviteEmail(e.target.value)}
+                            className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Password</label>
+                          <input
+                            type="password"
+                            required
+                            placeholder="Enter temporary password"
+                            value={invitePassword}
+                            onChange={(e) => setInvitePassword(e.target.value)}
+                            className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Phone Number</label>
+                            <input
+                              type="tel"
+                              placeholder="e.g. +91 98765 43210"
+                              value={inviteNumber}
+                              onChange={(e) => setInviteNumber(e.target.value)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Gender</label>
+                            <select
+                              value={inviteGender}
+                              onChange={(e) => setInviteGender(e.target.value as any)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            >
+                              <option value="Male">Male</option>
+                              <option value="Female">Female</option>
+                              <option value="Others">Others</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Role Allocation</label>
+                            {lockedRole ? (
+                              <div className="w-full p-2.5 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-200 font-semibold flex items-center gap-2">
+                                {lockedRole === 'Mentor' ? <GraduationCap className="w-3.5 h-3.5 text-teal-500" /> : lockedRole === 'Assistant' ? <BookOpen className="w-3.5 h-3.5 text-violet-500" /> : <Users2 className="w-3.5 h-3.5 text-amber-500" />}
+                                {lockedRole}
+                              </div>
+                            ) : (
+                              <select
+                                value={inviteRole}
+                                onChange={(e) => setInviteRole(e.target.value as UserRole)}
+                                className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                              >
+                                {currentUser?.role === 'Super Admin' ? (
+                                  <option value="Organization Admin">Organization Admin</option>
+                                ) : (
+                                  <>
+                                    <option value="Mentor">Mentor</option>
+                                    <option value="Assistant">Assistant</option>
+                                    <option value="Student">Student</option>
+                                  </>
+                                )}
+                              </select>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Initial Status</label>
+                            <select
+                              value={inviteStatus}
+                              onChange={(e) => setInviteStatus(e.target.value as any)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            >
+                              <option value="Active">Active</option>
+                              <option value="Pending">Pending</option>
+                              <option value="Inactive">Inactive</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {inviteRole === 'Assistant' && (
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Assign Mentor</label>
+                            <select
+                              value={inviteMentorId}
+                              onChange={(e) => setInviteMentorId(e.target.value)}
+                              className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 dark:text-slate-100"
+                            >
+                              <option value="">Unassigned (Link later)</option>
+                              {inviteMentorsList.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name} ({m.email})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </>
+                    )}
 
                     <div>
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Affiliated Organization</label>

@@ -50,6 +50,7 @@ export default function TopNav({
 }: TopNavProps) {
   const { currentUser, hasPermission } = useAuth();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [avatarError, setAvatarError] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -116,40 +117,90 @@ export default function TopNav({
 
   useEffect(() => {
     if (!currentUser) return;
-    
+
     async function fetchNotifications() {
-      const orgFilter = currentUser.role === 'Super Admin' 
+      const orgFilter = currentUser.role === 'Super Admin'
         ? (selectedOrg === 'All Organizations' ? null : selectedOrg)
         : currentUser.organization;
 
+      let studentName = currentUser.name;
+      let assignedMentorName = '';
+      if (currentUser.role === 'Student') {
+        try {
+          const { data: studentProfile } = await supabase
+            .from('students')
+            .select('name, mentor')
+            .eq('email', currentUser.email)
+            .maybeSingle();
+          if (studentProfile) {
+            if (studentProfile.name) studentName = studentProfile.name;
+            if (studentProfile.mentor) assignedMentorName = studentProfile.mentor;
+          }
+        } catch (e) {
+          console.error('Error fetching student profile for notifications:', e);
+        }
+      }
+
+      // Helper function to format title with organization for Super Admins
+      const formatTitle = (baseTitle: string, orgName: string) => {
+        if (currentUser.role === 'Super Admin') {
+          return `${baseTitle} [${orgName}]`;
+        }
+        return baseTitle;
+      };
+
       // 1. Fetch pending evaluations
-      let evalsQuery = supabase.from('evaluations').select('*').order('created_at', { ascending: false }).limit(3);
-      if (orgFilter) evalsQuery = evalsQuery.eq('organization', orgFilter);
+      let evalsQuery = supabase.from('evaluations').select('*').order('created_at', { ascending: false }).limit(20);
+      if (currentUser.role === 'Super Admin') {
+        if (orgFilter) evalsQuery = evalsQuery.eq('organization', orgFilter);
+      } else if (currentUser.role === 'Organization Admin' || currentUser.role === 'Assistant') {
+        evalsQuery = evalsQuery.eq('organization', currentUser.organization);
+      } else if (currentUser.role === 'Student') {
+        evalsQuery = evalsQuery.eq('studentName', studentName);
+      }
       const { data: evals } = await evalsQuery;
 
       // 2. Fetch payments
-      let paysQuery = supabase.from('payments').select('*').order('created_at', { ascending: false }).limit(3);
-      if (orgFilter) paysQuery = paysQuery.eq('organization', orgFilter);
+      let paysQuery = supabase.from('payments').select('*').order('created_at', { ascending: false }).limit(20);
+      if (currentUser.role === 'Super Admin') {
+        if (orgFilter) paysQuery = paysQuery.eq('organization', orgFilter);
+      } else if (currentUser.role === 'Organization Admin' || currentUser.role === 'Assistant') {
+        paysQuery = paysQuery.eq('organization', currentUser.organization);
+      } else if (currentUser.role === 'Student') {
+        paysQuery = paysQuery.eq('student', studentName);
+      }
       const { data: payments } = await paysQuery;
 
       // 3. Fetch sessions
-      let sessQuery = supabase.from('sessions').select('*').order('created_at', { ascending: false }).limit(3);
-      if (orgFilter) sessQuery = sessQuery.eq('organization', orgFilter);
+      let sessQuery = supabase.from('sessions').select('*').order('created_at', { ascending: false }).limit(20);
+      if (currentUser.role === 'Super Admin') {
+        if (orgFilter) sessQuery = sessQuery.eq('organization', orgFilter);
+      } else if (currentUser.role === 'Organization Admin' || currentUser.role === 'Assistant') {
+        sessQuery = sessQuery.eq('organization', currentUser.organization);
+      } else if (currentUser.role === 'Student') {
+        // Students should see notifications from their mentor and themselves (i.e. their own sessions)
+        sessQuery = sessQuery.eq('student', studentName).eq('mentor', assignedMentorName);
+      }
       const { data: sessions } = await sessQuery;
 
       // 4. Fetch new users
-      let usersQuery = supabase.from('users').select('*').order('created_at', { ascending: false }).limit(3);
-      if (orgFilter) usersQuery = usersQuery.eq('organization', orgFilter);
+      let usersQuery = supabase.from('users').select('*').order('created_at', { ascending: false }).limit(30);
+      if (currentUser.role === 'Super Admin' && orgFilter) {
+        usersQuery = usersQuery.eq('organization', orgFilter);
+      }
       const { data: users } = await usersQuery;
 
       const combined: any[] = [];
 
       if (evals) {
         evals.forEach((item) => {
+          const isOwn = currentUser.role === 'Student';
           combined.push({
             id: `eval-${item.id}`,
-            title: 'Evaluation Pending',
-            body: `${item.studentName}'s Chemistry evaluation is ready for approval.`,
+            title: formatTitle(isOwn ? 'Evaluation Updated' : 'Evaluation Pending', item.organization),
+            body: isOwn
+              ? `Your Chemistry evaluation is ready for your review.`
+              : `${item.studentName}'s Chemistry evaluation is ready for approval.`,
             time: getRelativeTime(item.created_at),
             timestamp: item.created_at,
             read: new Date(item.created_at) <= new Date(lastReadTime)
@@ -159,10 +210,13 @@ export default function TopNav({
 
       if (payments) {
         payments.forEach((item) => {
+          const isOwn = currentUser.role === 'Student';
           combined.push({
             id: `pay-${item.id}`,
-            title: 'Payment Success',
-            body: `${item.student} paid ${item.plan} invoice of $${item.amount}.`,
+            title: formatTitle('Payment Success', item.organization),
+            body: isOwn
+              ? `Your payment for ${item.plan} invoice of $${item.amount} was successful.`
+              : `${item.student} paid ${item.plan} invoice of $${item.amount}.`,
             time: getRelativeTime(item.created_at),
             timestamp: item.created_at,
             read: new Date(item.created_at) <= new Date(lastReadTime)
@@ -172,10 +226,13 @@ export default function TopNav({
 
       if (sessions) {
         sessions.forEach((item) => {
+          const isOwn = currentUser.role === 'Student';
           combined.push({
             id: `sess-${item.id}`,
-            title: 'Session Booked',
-            body: `${item.mentor} scheduled a session with ${item.student} on ${item.date}.`,
+            title: formatTitle('Session Booked', item.organization),
+            body: isOwn
+              ? `Your session with ${item.mentor} is scheduled on ${item.date}.`
+              : `${item.mentor} scheduled a session with ${item.student} on ${item.date}.`,
             time: getRelativeTime(item.created_at),
             timestamp: item.created_at,
             read: new Date(item.created_at) <= new Date(lastReadTime)
@@ -186,9 +243,27 @@ export default function TopNav({
       if (users) {
         users.forEach((item) => {
           if (item.email.toLowerCase() === currentUser.email.toLowerCase()) return;
+
+          // Apply Custom Role Visibility Filter in memory
+          let show = false;
+          if (currentUser.role === 'Super Admin') {
+            show = true;
+          } else if (currentUser.role === 'Organization Admin') {
+            // Can see all notifications from: Super Admin, Mentors of their organization, Assistants of their organization, Students of their organization.
+            show = item.role === 'Super Admin' || (item.organization === currentUser.organization && ['Mentor', 'Assistant', 'Student'].includes(item.role));
+          } else if (currentUser.role === 'Assistant') {
+            // Can see notifications from: Mentors and Students of their organization
+            show = item.organization === currentUser.organization && ['Mentor', 'Student'].includes(item.role);
+          } else if (currentUser.role === 'Student') {
+            // Can see notifications from: their mentor and Assistant of their organization
+            show = (item.role === 'Assistant' && item.organization === currentUser.organization) || (item.role === 'Mentor' && item.name === assignedMentorName);
+          }
+
+          if (!show) return;
+
           combined.push({
             id: `usr-${item.id}`,
-            title: 'New User Registered',
+            title: formatTitle('New User Registered', item.organization),
             body: `${item.name} (${item.role}) joined the organization.`,
             time: getRelativeTime(item.created_at),
             timestamp: item.created_at,
@@ -216,7 +291,7 @@ export default function TopNav({
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 md:px-6 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 transition-colors">
-      
+
       {/* Mobile Menu & Org Selector */}
       <div className="flex items-center gap-3">
         <button
@@ -230,9 +305,8 @@ export default function TopNav({
         <div className="relative">
           <button
             onClick={() => currentUser?.role === 'Super Admin' && setOrgDropdownOpen(!orgDropdownOpen)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs font-semibold text-left select-none ${
-              currentUser?.role !== 'Super Admin' ? 'cursor-default pointer-events-none' : 'cursor-pointer'
-            }`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs font-semibold text-left select-none ${currentUser?.role !== 'Super Admin' ? 'cursor-default pointer-events-none' : 'cursor-pointer'
+              }`}
           >
             <Building className="w-4 h-4 text-blue-500 shrink-0" />
             <span className="truncate max-w-[120px] sm:max-w-[160px]">{selectedOrg}</span>
@@ -261,11 +335,10 @@ export default function TopNav({
                       setSelectedOrg('All Organizations');
                       setOrgDropdownOpen(false);
                     }}
-                    className={`flex items-center justify-between w-full px-3 py-2 text-xs text-left ${
-                      selectedOrg === 'All Organizations'
+                    className={`flex items-center justify-between w-full px-3 py-2 text-xs text-left ${selectedOrg === 'All Organizations'
                         ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
                         : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
-                    }`}
+                      }`}
                   >
                     <span className="truncate font-semibold">All Organizations</span>
                     <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-905 font-medium text-blue-600 dark:text-blue-400 shrink-0">
@@ -279,11 +352,10 @@ export default function TopNav({
                         setSelectedOrg(org.name);
                         setOrgDropdownOpen(false);
                       }}
-                      className={`flex items-center justify-between w-full px-3 py-2 text-xs text-left ${
-                        selectedOrg === org.name
+                      className={`flex items-center justify-between w-full px-3 py-2 text-xs text-left ${selectedOrg === org.name
                           ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
                           : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
-                      }`}
+                        }`}
                     >
                       <span className="truncate">{org.name}</span>
                       <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 font-medium text-slate-500 dark:text-slate-400 shrink-0">
@@ -333,7 +405,7 @@ export default function TopNav({
                 </div>
                 {searchQuery ? (
                   <div className="space-y-1">
-                    <button 
+                    <button
                       onClick={() => { setActiveTab('students'); setSearchQuery(''); }}
                       className="flex items-center gap-2.5 w-full p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300 transition-colors text-left"
                     >
@@ -343,7 +415,7 @@ export default function TopNav({
                         <div className="text-[10px] text-slate-400">View in Students List</div>
                       </div>
                     </button>
-                    <button 
+                    <button
                       onClick={() => { setActiveTab('mentors'); setSearchQuery(''); }}
                       className="flex items-center gap-2.5 w-full p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300 transition-colors text-left"
                     >
@@ -387,70 +459,7 @@ export default function TopNav({
 
       {/* Right Side Icons & Actions */}
       <div className="flex items-center gap-3">
-        {/* Quick Actions Dropdown */}
-        {showQuickActions && (
-          <div className="relative hidden md:block">
-            <button
-              onClick={() => setQuickActionsOpen(!quickActionsOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer select-none"
-            >
-              <Zap className="w-3.5 h-3.5 text-blue-100" />
-              <span>Quick Action</span>
-              <ChevronDown className="w-3 h-3 text-blue-100" />
-            </button>
 
-            <AnimatePresence>
-              {quickActionsOpen && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setQuickActionsOpen(false)} />
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    className="absolute right-0 mt-1.5 w-52 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-xl z-40 py-1"
-                  >
-                    {canCreateSession && (
-                      <button
-                        onClick={() => {
-                          setQuickActionsOpen(false);
-                          onQuickAction('create_session');
-                        }}
-                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
-                      >
-                        <PlusCircle className="w-4 h-4 text-blue-500" />
-                        <span>Create New Session</span>
-                      </button>
-                    )}
-                    {canAssignMentor && (
-                      <button
-                        onClick={() => {
-                          setQuickActionsOpen(false);
-                          onQuickAction('assign_mentor');
-                        }}
-                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
-                      >
-                        <PlusCircle className="w-4 h-4 text-teal-500" />
-                        <span>Assign Mentor</span>
-                      </button>
-                    )}
-                    {canAddStudent && (
-                      <button
-                        onClick={() => {
-                          setQuickActionsOpen(false);
-                          onQuickAction('add_student');
-                        }}
-                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left"
-                      >
-                        <PlusCircle className="w-4 h-4 text-emerald-500" />
-                        <span>Add New Student</span>
-                      </button>
-                    )}
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
 
         {/* Theme Toggle Button */}
         <button
@@ -501,9 +510,8 @@ export default function TopNav({
                       notifications.map((notif) => (
                         <div
                           key={notif.id}
-                          className={`p-2 rounded-lg transition-colors ${
-                            notif.read ? 'hover:bg-slate-50 dark:hover:bg-slate-700/30' : 'bg-slate-50 dark:bg-slate-700/40 border-l-2 border-blue-500'
-                          }`}
+                          className={`p-2 rounded-lg transition-colors ${notif.read ? 'hover:bg-slate-50 dark:hover:bg-slate-700/30' : 'bg-slate-50 dark:bg-slate-700/40 border-l-2 border-blue-500'
+                            }`}
                         >
                           <div className="flex items-center justify-between mb-0.5">
                             <span className="font-semibold text-slate-700 dark:text-slate-200">{notif.title}</span>
@@ -526,12 +534,19 @@ export default function TopNav({
             onClick={() => setProfileOpen(!profileOpen)}
             className="flex items-center gap-1.5 focus:outline-none select-none"
           >
-            <img
-              src={currentUser?.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'}
-              alt={currentUser?.role || 'User'}
-              referrerPolicy="no-referrer"
-              className="w-8 h-8 rounded-lg object-cover ring-2 ring-slate-100 dark:ring-slate-800"
-            />
+            {currentUser?.avatar && !avatarError ? (
+              <img
+                src={currentUser.avatar}
+                alt={currentUser?.role || 'User'}
+                referrerPolicy="no-referrer"
+                onError={() => setAvatarError(true)}
+                className="w-8 h-8 rounded-lg object-cover ring-2 ring-slate-100 dark:ring-slate-800 shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-extrabold flex items-center justify-center text-xs select-none ring-2 ring-slate-100 dark:ring-slate-800 shrink-0">
+                {currentUser?.name?.trim().charAt(0).toUpperCase() || 'U'}
+              </div>
+            )}
             <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
 

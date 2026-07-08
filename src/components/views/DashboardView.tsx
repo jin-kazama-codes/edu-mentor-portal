@@ -20,7 +20,8 @@ import {
   Plus,
   ArrowRight,
   Sparkles,
-  Award
+  Award,
+  Loader2
 } from 'lucide-react';
 import { CustomAreaLineChart, CustomBarChart } from '../Charts';
 import { reportsAnalytics as fallbackAnalytics, sessions as fallbackSessions } from '../../data/mockData';
@@ -32,6 +33,30 @@ import { isMeetingLinkActive } from '../../utils/dateUtils';
 interface DashboardViewProps {
   onNavigate: (tab: string) => void;
   selectedOrg: string;
+}
+
+function StudentCardAvatar({ src, name, className }: { src?: string; name: string; className?: string }) {
+  const [error, setError] = useState(false);
+
+  const isValidUrl = src && (src.startsWith('http') || src.startsWith('data:image') || src.startsWith('/'));
+
+  if (!isValidUrl || error) {
+    return (
+      <div className={`rounded-full bg-indigo-950 border-2 border-white text-white font-black flex items-center justify-center select-none text-sm ring-2 ring-blue-500/20 shrink-0 ${className}`}>
+        {name.trim().charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      referrerPolicy="no-referrer"
+      onError={() => setError(true)}
+      className={`rounded-full object-cover border-2 border-white ring-2 ring-blue-500/20 shrink-0 ${className}`}
+    />
+  );
 }
 
 export default function DashboardView({ onNavigate, selectedOrg }: DashboardViewProps) {
@@ -57,6 +82,13 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
   const [studentMentor, setStudentMentor] = useState<any>(null);
   const [studentDetails, setStudentDetails] = useState<any>(null);
   const [studentEvaluation, setStudentEvaluation] = useState<any>(null);
+
+  // Student Attendance punch states
+  const [todayAttendance, setTodayAttendance] = useState<any>(null);
+  const [punchMode, setPunchMode] = useState<'OFFICE' | 'HOME' | 'FIELD'>('OFFICE');
+  const [elapsedTime, setElapsedTime] = useState('0h 0m 0s');
+  const [isOnBreak, setIsOnBreak] = useState(false);
+  const [isPunching, setIsPunching] = useState(false);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -321,6 +353,24 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
           if (evalRec) {
             setStudentEvaluation(evalRec);
           }
+
+          const todayStr = new Date().toISOString().split('T')[0];
+          const { data: attRec } = await supabase
+            .from('student_attendance')
+            .select('*')
+            .eq('student_id', studentProfile.id)
+            .eq('date', todayStr)
+            .maybeSingle();
+          if (attRec) {
+            setTodayAttendance(attRec);
+            if (attRec.status === 'Wfh') {
+              setPunchMode('HOME');
+            } else if (attRec.status === 'On Field') {
+              setPunchMode('FIELD');
+            } else {
+              setPunchMode('OFFICE');
+            }
+          }
         }
       }
     }
@@ -339,12 +389,127 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
         { event: '*', schema: 'public', table: 'students' },
         () => { loadDashboardData(); }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'student_attendance' },
+        () => { loadDashboardData(); }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, [selectedOrg, currentUser]);
+
+  // Live Working Hours Timer
+  useEffect(() => {
+    if (currentUser?.role !== 'Student' || !todayAttendance?.day_begin) {
+      setElapsedTime('0h 0m 0s');
+      return;
+    }
+
+    const start = new Date(todayAttendance.day_begin).getTime();
+    
+    if (todayAttendance.day_end) {
+      const end = new Date(todayAttendance.day_end).getTime();
+      const diffMs = Math.max(0, end - start);
+      const secs = Math.floor(diffMs / 1000) % 60;
+      const mins = Math.floor(diffMs / 60000) % 60;
+      const hrs = Math.floor(diffMs / 3600000);
+      setElapsedTime(`${hrs}h ${mins}m ${secs}s`);
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const diffMs = Math.max(0, now - start);
+      const secs = Math.floor(diffMs / 1000) % 60;
+      const mins = Math.floor(diffMs / 60000) % 60;
+      const hrs = Math.floor(diffMs / 3600000);
+      setElapsedTime(`${hrs}h ${mins}m ${secs}s`);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [todayAttendance, currentUser]);
+
+  const handleDayBegin = async () => {
+    if (!studentDetails || !currentUser) return;
+    setIsPunching(true);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const statusMap = {
+        HOME: 'Wfh',
+        OFFICE: 'Present',
+        FIELD: 'On Field'
+      } as const;
+      
+      const payload = {
+        id: `${studentDetails.id}-${todayStr}`,
+        student_id: studentDetails.id,
+        date: todayStr,
+        status: statusMap[punchMode],
+        organization: studentDetails.organization,
+        day_begin: new Date().toISOString(),
+        day_end: null
+      };
+
+      const { data, error } = await supabase
+        .from('student_attendance')
+        .upsert(payload)
+        .select()
+        .single();
+
+      if (error) throw error;
+      setTodayAttendance(data);
+    } catch (err: any) {
+      console.error('[DashboardView] Day Begin failed:', err);
+      alert(err.message || 'Failed to start your day. Please ensure database migrations are run in Supabase SQL editor.');
+    } finally {
+      setIsPunching(false);
+    }
+  };
+
+  const handleDayEnd = async () => {
+    if (!todayAttendance || !currentUser) return;
+    setIsPunching(true);
+    try {
+      const payload = {
+        ...todayAttendance,
+        day_end: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('student_attendance')
+        .upsert(payload)
+        .select()
+        .single();
+
+      if (error) throw error;
+      setTodayAttendance(data);
+    } catch (err: any) {
+      console.error('[DashboardView] Day End failed:', err);
+      alert(err.message || 'Failed to end your day.');
+    } finally {
+      setIsPunching(false);
+    }
+  };
+
+  const getFormattedDate = () => {
+    const today = new Date();
+    const day = String(today.getDate()).padStart(2, '0');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[today.getMonth()];
+    const year = today.getFullYear();
+    return `${day} ${month} ${year}`;
+  };
+
+  const getDayName = () => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[new Date().getDay()];
+  };
 
   // Executive Statistics Cards Data
   const stats = [
@@ -393,6 +558,106 @@ export default function DashboardView({ onNavigate, selectedOrg }: DashboardView
             >
               <MessageSquare className="w-4 h-4" />
               <span>Message Tutors</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Attendance Punch Card matching mockup */}
+        <div className="bg-gradient-to-br from-blue-700 via-blue-800 to-indigo-900 rounded-3xl p-6 text-white shadow-xl border border-blue-600/30 relative overflow-hidden w-full">
+          {/* Subtle design graphics */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl pointer-events-none" />
+          
+          {/* Top Row: User Avatar */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-white/10 pb-5 mb-5">
+            <div className="flex items-center gap-3">
+              <div className="relative flex-shrink-0">
+                <StudentCardAvatar
+                  src={studentDetails?.avatar || currentUser.avatar}
+                  name={studentDetails?.name || currentUser.name || 'Student'}
+                  className="w-12 h-12"
+                />
+                <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-indigo-900 rounded-full" />
+              </div>
+              <div>
+                <h2 className="font-extrabold text-white text-base leading-none tracking-tight">{currentUser.name}</h2>
+                <p className="text-xs text-blue-200 font-medium mt-1">Student</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Middle Row: View Working Hours pill & Day label */}
+          <div className="flex flex-col items-center justify-center text-center space-y-3 mb-6">
+            {/* Capsule Outline for Working Hours */}
+            <div className="flex items-center gap-2 px-4 py-2 border border-white/20 bg-white/10 backdrop-blur-sm rounded-full">
+              <Clock className="w-4 h-4 text-blue-300 animate-pulse" />
+              <span className="text-xs font-semibold text-blue-100">
+                View Working Hours <strong className="text-white ml-1">{elapsedTime}</strong>
+              </span>
+            </div>
+            
+            {/* Large Weekday Text */}
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-white font-sans drop-shadow-sm">
+              {getDayName()}
+            </h1>
+          </div>
+
+          {/* Mode selector pills (HOME / OFFICE / FIELD) */}
+          <div className="flex justify-center items-center gap-3 mb-8">
+            {(['HOME', 'OFFICE', 'FIELD'] as const).map((mode) => {
+              const active = punchMode === mode;
+              const disabled = !!todayAttendance?.day_begin;
+              return (
+                <button
+                  key={mode}
+                  disabled={disabled}
+                  onClick={() => setPunchMode(mode)}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                    active
+                      ? 'bg-amber-400 border-amber-400 text-slate-900'
+                      : 'bg-white/10 border-white/10 text-blue-100 hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  {mode}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Bottom Row: Day Begin, Date, Day End */}
+          <div className="flex justify-between items-center gap-4">
+            {/* Day Begin Button */}
+            <button
+              onClick={handleDayBegin}
+              disabled={isPunching || !!todayAttendance?.day_begin}
+              className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-650 disabled:bg-emerald-650/40 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-emerald-500/20 disabled:opacity-50 disabled:shadow-none transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              {isPunching && !todayAttendance?.day_begin ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                'Day Begin'
+              )}
+            </button>
+
+            {/* Central Date text */}
+            <div className="text-xs font-bold tracking-wide text-blue-200">
+              {getFormattedDate()}
+            </div>
+
+            {/* Day End Button */}
+            <button
+              onClick={handleDayEnd}
+              disabled={isPunching || !todayAttendance?.day_begin || !!todayAttendance?.day_end}
+              className={`px-5 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                !todayAttendance?.day_begin || !!todayAttendance?.day_end
+                  ? 'bg-slate-700/50 text-slate-450 border border-slate-700/40 cursor-not-allowed'
+                  : 'bg-rose-500 hover:bg-rose-600 text-white hover:shadow-rose-500/20'
+              }`}
+            >
+              {isPunching && todayAttendance?.day_begin && !todayAttendance?.day_end ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                'Day End'
+              )}
             </button>
           </div>
         </div>

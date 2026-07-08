@@ -100,6 +100,30 @@ const statusBorderMap: Record<AttendanceStatus, string> = {
   Weekend: 'border-l-[3.5px] border-l-indigo-500 border-slate-150 dark:border-slate-850/50',
 };
 
+function StudentAvatar({ src, name, className }: { src?: string; name: string; className?: string }) {
+  const [error, setError] = useState(false);
+
+  const isValidUrl = src && (src.startsWith('http') || src.startsWith('data:image') || src.startsWith('/'));
+
+  if (!isValidUrl || error) {
+    return (
+      <div className={`rounded-full bg-slate-100 dark:bg-slate-750 shrink-0 flex items-center justify-center text-slate-650 dark:text-slate-350 font-extrabold select-none ${className}`}>
+        {name.trim().charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      referrerPolicy="no-referrer"
+      onError={() => setError(true)}
+      className={`rounded-full object-cover shrink-0 ${className}`}
+    />
+  );
+}
+
 interface AttendanceViewProps {
   selectedOrg?: string;
 }
@@ -133,6 +157,8 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
   const [bulkStudentId, setBulkStudentId] = useState('');
   const [bulkDate, setBulkDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>('Present');
+  const [bulkBeginTime, setBulkBeginTime] = useState('');
+  const [bulkEndTime, setBulkEndTime] = useState('');
 
   // Edit popover state
   const [activePopover, setActivePopover] = useState<{ studentId: string; dateStr: string; x: number; y: number } | null>(null);
@@ -308,12 +334,26 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
           .match({ student_id: studentId, date: dateStr });
         if (error) throw error;
       } else {
+        // Default working hours: Present/Wfh/On Field is 9am-5pm; Half is 9am-1pm; others are null
+        let defaultBegin: string | null = null;
+        let defaultEnd: string | null = null;
+        
+        if (['Present', 'Wfh', 'On Field'].includes(status)) {
+          defaultBegin = new Date(`${dateStr}T09:00:00`).toISOString();
+          defaultEnd = new Date(`${dateStr}T17:00:00`).toISOString();
+        } else if (status === 'Half') {
+          defaultBegin = new Date(`${dateStr}T09:00:00`).toISOString();
+          defaultEnd = new Date(`${dateStr}T13:00:00`).toISOString();
+        }
+
         const payload: Partial<StudentAttendance> = {
           id: `${studentId}-${dateStr}`,
           student_id: studentId,
           date: dateStr,
           status,
-          organization: student.organization
+          organization: student.organization,
+          day_begin: defaultBegin || undefined,
+          day_end: defaultEnd || undefined
         };
 
         const { error } = await supabase
@@ -342,12 +382,33 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
       const student = students.find(s => s.id === bulkStudentId);
       if (!student) throw new Error('Student not found');
 
+      let finalBegin: string | null = null;
+      let finalEnd: string | null = null;
+      
+      if (bulkBeginTime) {
+        finalBegin = new Date(`${bulkDate}T${bulkBeginTime}:00`).toISOString();
+      } else if (['Present', 'Wfh', 'On Field'].includes(bulkStatus)) {
+        finalBegin = new Date(`${bulkDate}T09:00:00`).toISOString();
+      } else if (bulkStatus === 'Half') {
+        finalBegin = new Date(`${bulkDate}T09:00:00`).toISOString();
+      }
+
+      if (bulkEndTime) {
+        finalEnd = new Date(`${bulkDate}T${bulkEndTime}:00`).toISOString();
+      } else if (['Present', 'Wfh', 'On Field'].includes(bulkStatus)) {
+        finalEnd = new Date(`${bulkDate}T17:00:00`).toISOString();
+      } else if (bulkStatus === 'Half') {
+        finalEnd = new Date(`${bulkDate}T13:00:00`).toISOString();
+      }
+
       const payload: Partial<StudentAttendance> = {
         id: `${bulkStudentId}-${bulkDate}`,
         student_id: bulkStudentId,
         date: bulkDate,
         status: bulkStatus,
-        organization: student.organization
+        organization: student.organization,
+        day_begin: finalBegin || undefined,
+        day_end: finalEnd || undefined
       };
 
       const { error } = await supabase
@@ -526,6 +587,8 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
                 if (students.length > 0) {
                   setBulkStudentId(students[0].id);
                 }
+                setBulkBeginTime('');
+                setBulkEndTime('');
                 setShowAddModal(true);
               }}
               className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-xl text-xs font-bold shadow-md shadow-orange-500/15 cursor-pointer hover:shadow-orange-500/25 active:scale-98 transition-all duration-150"
@@ -624,11 +687,10 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
                 {/* Student Card Top Section */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-850">
                   <div className="flex items-center gap-3">
-                    <img
-                      src={student.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
-                      alt={student.name}
-                      referrerPolicy="no-referrer"
-                      className="w-10 h-10 rounded-xl object-cover ring-2 ring-slate-100 dark:ring-slate-800 shadow-sm shrink-0"
+                    <StudentAvatar
+                      src={student.avatar}
+                      name={student.name}
+                      className="w-10 h-10 ring-2 ring-slate-100 dark:ring-slate-800 shadow-sm"
                     />
                     <div>
                       <h3 className="font-bold text-slate-800 dark:text-white text-sm tracking-tight">{student.name}</h3>
@@ -682,7 +744,7 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
                           );
                         }
 
-                        const { status } = getDayAttendance(student.id, cell.dateStr, cell.isSunday);
+                        const { status, record } = getDayAttendance(student.id, cell.dateStr, cell.isSunday);
                         const meta = status ? statusMetadata[status] : null;
                         const IconComp = meta?.icon;
                         const borderClass = status ? statusBorderMap[status] : 'border-slate-100 dark:border-slate-850/50';
@@ -690,10 +752,23 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
                           ? `${meta.bg} dark:bg-slate-900/30 shadow-3xs`
                           : 'bg-slate-50/30 hover:bg-slate-100/40 dark:bg-slate-950/10 dark:hover:bg-slate-900/30 border border-slate-100 dark:border-slate-850/60';
 
+                        let hoverTitle = status || '';
+                        if (status && record) {
+                          if (record.day_begin) {
+                            const beginTime = new Date(record.day_begin).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                            hoverTitle += `\nDay Begin: ${beginTime}`;
+                          }
+                          if (record.day_end) {
+                            const endTime = new Date(record.day_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                            hoverTitle += `\nDay End: ${endTime}`;
+                          }
+                        }
+
                         return (
                           <div
                             key={cell.dateStr}
                             onClick={(e) => handleCellClick(e, student.id, cell.dateStr, cell.isSunday)}
+                            title={hoverTitle}
                             className={`h-16 rounded-xl flex flex-col p-2 select-none transition-all duration-150 ${cellBgClass} ${borderClass} ${canEdit ? 'cursor-pointer hover:border-slate-350 dark:hover:border-slate-700 hover:shadow-xs hover:-translate-y-[1px]' : ''
                               }`}
                           >
@@ -716,6 +791,14 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
                                 </span>
                               )}
                             </div>
+
+                            {/* Punch times info text */}
+                            {record?.day_begin && (
+                              <div className="text-[8px] text-center font-extrabold mt-1 text-slate-500 dark:text-slate-400 opacity-80 select-none tracking-tighter">
+                                {new Date(record.day_begin).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                                {record.day_end ? ` - ${new Date(record.day_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}` : ' ...'}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -845,6 +928,34 @@ export default function AttendanceView({ selectedOrg = 'All Organizations' }: At
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* Choose Begin and End Time */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1">
+                      Day Begin Time
+                    </label>
+                    <input
+                      type="time"
+                      value={bulkBeginTime}
+                      onChange={(e) => setBulkBeginTime(e.target.value)}
+                      placeholder="e.g. 09:00"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950/30 border border-slate-200/80 dark:border-slate-800/80 rounded-xl text-xs text-slate-700 dark:text-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 dark:color-scheme-dark transition-all duration-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1">
+                      Day End Time
+                    </label>
+                    <input
+                      type="time"
+                      value={bulkEndTime}
+                      onChange={(e) => setBulkEndTime(e.target.value)}
+                      placeholder="e.g. 17:00"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955/30 border border-slate-200/80 dark:border-slate-800/80 rounded-xl text-xs text-slate-700 dark:text-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 dark:color-scheme-dark transition-all duration-200"
+                    />
+                  </div>
                 </div>
 
                 {/* Buttons */}

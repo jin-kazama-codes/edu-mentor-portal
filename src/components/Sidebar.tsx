@@ -54,6 +54,7 @@ export default function Sidebar({
   const { currentUser, hasPermission } = useAuth();
   const [studentCount, setStudentCount] = useState<number | null>(null);
   const [unreadMsgCount, setUnreadMsgCount] = useState<number | null>(null);
+  const [avatarError, setAvatarError] = useState(false);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -199,12 +200,19 @@ export default function Sidebar({
       {/* User Footer Account Info */}
       <div className="p-3 border-t border-slate-150 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20">
         <div className="flex items-center gap-3 overflow-hidden rounded-xl p-1.5">
-          <img
-            src={currentUser?.avatar || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80"}
-            alt={currentUser?.name || "User"}
-            referrerPolicy="no-referrer"
-            className="w-8 h-8 rounded-lg object-cover ring-2 ring-slate-150 dark:ring-slate-850"
-          />
+          {currentUser?.avatar && !avatarError ? (
+            <img
+              src={currentUser.avatar}
+              alt={currentUser?.name || "User"}
+              referrerPolicy="no-referrer"
+              onError={() => setAvatarError(true)}
+              className="w-8 h-8 rounded-lg object-cover ring-2 ring-slate-150 dark:ring-slate-850 shrink-0"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-extrabold flex items-center justify-center text-xs select-none ring-2 ring-slate-150 dark:ring-slate-850 shrink-0">
+              {currentUser?.name?.trim().charAt(0).toUpperCase() || 'U'}
+            </div>
+          )}
           {!collapsed && (
             <motion.div
               initial={{ opacity: 0 }}
